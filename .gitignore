@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# 数据库文件（由脚本生成）
+db/mc_vectors.faiss
+db/mc_metadata.json
+db/similarity.json
+
+# 虚拟环境
+venv/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
