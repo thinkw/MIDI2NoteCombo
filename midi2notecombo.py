@@ -18,12 +18,35 @@ import argparse
 import json
 import os
 import sys
-from typing import Dict, List
+from typing import Dict, List, Optional, TextIO
 
-from instruments import get_instrument_ids, get_all_instruments
+# 减少 TensorFlow 日志输出
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
+
+from instruments import get_midpoint, HARP_MIDPOINT
 from midi_parser import parse_midi
 from recommender import load_similarity, load_mc_vectors, recommend_for_track
 from utils import ensure_dir
+
+
+class Tee:
+    """同时输出到控制台和日志文件。"""
+
+    def __init__(self, file: TextIO):
+        self.file = file
+        self.stdout = sys.stdout
+
+    def write(self, data):
+        self.stdout.write(data)
+        self.file.write(data)
+
+    def flush(self):
+        self.stdout.flush()
+        self.file.flush()
+
+    def close(self):
+        self.file.close()
 
 
 def check_databases(db_dir: str) -> bool:
@@ -84,7 +107,16 @@ def print_summary(results: List[Dict], verbose: bool = False) -> None:
                     for item in instruments:
                         inst_id = item["instrument"]
                         weight = item["weight"]
-                        print(f"       - {inst_id:20s}  权重: {weight}")
+                        mid = get_midpoint(inst_id)
+                        if mid is not None:
+                            # 八度偏移 = 该乐器中间音相对于竖琴中间音(F4)的八度数
+                            # 正值表示 NBS 中需上移，负值表示下移
+                            octaves = (HARP_MIDPOINT - mid) // 12
+                            sign = "+" if octaves > 0 else ""
+                            offset_str = f"偏移{sign}{octaves}个八度"
+                        else:
+                            offset_str = ""
+                        print(f"       - {inst_id:20s}  权重: {weight}    {offset_str}")
                 else:
                     print(f"     推荐乐器: 无可行组合")
         else:
@@ -137,68 +169,90 @@ def main():
     parser.add_argument("--max_instruments", type=int, default=3,
                         help="每个音区最多使用的乐器数量（默认: 3）")
     parser.add_argument("--accurate", action="store_true",
-                        help="启用渲染合成方式获取目标向量（更精确但较慢，暂未实现）")
+                        help="启用渲染合成方式获取目标向量（对每个音区独立渲染音频并提取音色向量，更精确但较慢）")
+    parser.add_argument("--nbs_offset", type=int, default=12,
+                        help="NBS 导入 MIDI 时的半音下移偏移量（默认: 12）。"
+                             "pretty_midi 使用 C4=60 编号，而 NBS 使用 C3=48，"
+                             "因此 NBS 导入 MIDI 后位置 = MIDI 音高 - 此偏移量")
+    parser.add_argument("--log", default=None,
+                        help="控制台输出日志文件路径（可选，如 --log output.log）")
     args = parser.parse_args()
 
-    # 检查输入文件
-    if not os.path.isfile(args.midi):
-        print(f"[错误] MIDI 文件不存在: {args.midi}")
-        sys.exit(1)
+    # 如果指定了日志文件，同时输出到控制台和文件
+    _log_tee: Optional[Tee] = None
+    if args.log:
+        ensure_dir(os.path.dirname(args.log) or ".")
+        _log_tee = Tee(open(args.log, "w", encoding="utf-8"))
+        sys.stdout = _log_tee  # type: ignore[assignment]
 
-    # 检查数据库
-    if not check_databases(args.db_dir):
-        sys.exit(1)
+    try:
+        # 检查输入文件
+        if not os.path.isfile(args.midi):
+            print(f"[错误] MIDI 文件不存在: {args.midi}")
+            sys.exit(1)
 
-    # 确定分组大小
-    group_size = args.group_size if args.group_by == "custom" else 12
+        # 检查数据库
+        if not check_databases(args.db_dir):
+            sys.exit(1)
 
-    print(f"[信息] 解析 MIDI 文件: {args.midi}")
-    tracks = parse_midi(args.midi)
+        # 确定分组大小
+        group_size = args.group_size if args.group_by == "custom" else 12
 
-    if not tracks:
-        print("[警告] MIDI 文件中没有非打击乐轨道，输出空结果。")
-        results = []
-    else:
-        print(f"[信息] 找到 {len(tracks)} 个非打击乐轨道")
-        if args.verbose:
-            for t in tracks:
-                print(f"  - 轨道 {t['track_index']}: {t['midi_instrument_name']} "
-                      f"(Program {t['midi_program']}), "
-                      f"音域 [{t['note_range'][0]}, {t['note_range'][1]}], "
-                      f"音符数 {len(t['notes'])}")
+        print(f"[信息] 解析 MIDI 文件: {args.midi}")
+        tracks = parse_midi(args.midi)
 
-        # 加载相似度表
-        similarity = load_similarity(args.db_dir)
-
-        # 加载 MC 向量
-        mc_vectors, id_to_idx = load_mc_vectors(args.db_dir)
-
-        # 对每个轨道执行推荐
-        results = []
-        for track in tracks:
+        if not tracks:
+            print("[警告] MIDI 文件中没有非打击乐轨道，输出空结果。")
+            results = []
+        else:
+            print(f"[信息] 找到 {len(tracks)} 个非打击乐轨道")
             if args.verbose:
-                print(f"[信息] 正在为轨道 {track['track_index']} 推荐乐器...")
-            track_result = recommend_for_track(
-                track, similarity, mc_vectors, id_to_idx,
-                group_size=group_size,
-                max_instruments=args.max_instruments,
-            )
-            results.append(track_result)
+                for t in tracks:
+                    print(f"  - 轨道 {t['track_index']}: {t['midi_instrument_name']} "
+                          f"(Program {t['midi_program']}), "
+                          f"音域 [{t['note_range'][0]}, {t['note_range'][1]}], "
+                          f"音符数 {len(t['notes'])}")
 
-    # 构建输出 JSON
-    output_data = {
-        "input_file": os.path.basename(args.midi),
-        "tracks": results,
-    }
+            # 加载相似度表
+            similarity = load_similarity(args.db_dir)
 
-    # 保存 JSON
-    ensure_dir(os.path.dirname(args.output) or ".")
-    with open(args.output, "w", encoding="utf-8") as f:
-        json.dump(output_data, f, ensure_ascii=False, indent=2)
-    print(f"\n[完成] 结果已保存到: {args.output}")
+            # 加载 MC 向量
+            mc_vectors, id_to_idx = load_mc_vectors(args.db_dir)
 
-    # 打印摘要
-    print_summary(results, verbose=args.verbose)
+            # 对每个轨道执行推荐
+            results = []
+            for track in tracks:
+                if args.verbose:
+                    print(f"[信息] 正在为轨道 {track['track_index']} 推荐乐器...")
+                track_result = recommend_for_track(
+                    track, similarity, mc_vectors, id_to_idx,
+                    group_size=group_size,
+                    max_instruments=args.max_instruments,
+                    accurate=args.accurate,
+                    nbs_offset=args.nbs_offset,
+                )
+                results.append(track_result)
+
+        # 构建输出 JSON
+        output_data = {
+            "input_file": os.path.basename(args.midi),
+            "tracks": results,
+        }
+
+        # 保存 JSON
+        ensure_dir(os.path.dirname(args.output) or ".")
+        with open(args.output, "w", encoding="utf-8") as f:
+            json.dump(output_data, f, ensure_ascii=False, indent=2)
+        print(f"\n[完成] 结果已保存到: {args.output}")
+
+        # 打印摘要
+        print_summary(results, verbose=args.verbose)
+
+    finally:
+        if _log_tee:
+            print(f"\n[信息] 控制台日志已保存到: {args.log}")
+            sys.stdout = _log_tee.stdout
+            _log_tee.close()
 
 
 if __name__ == "__main__":

@@ -140,7 +140,8 @@ python midi2notecombo.py --midi song.mid --max_instruments 2
 | `--group_by` | 音区划分方式：`octave`（按八度）或 `custom`（自定义区间） | `octave` |
 | `--group_size` | 自定义区间大小（半音数，`--group_by custom` 时生效） | `12` |
 | `--max_instruments` | 每个音区最多使用的乐器数量 | `3` |
-| `--accurate` | 启用渲染合成方式获取目标向量（更精确，暂未实现） | 关闭 |
+| `--accurate` | 启用渲染合成方式获取目标向量（对每个音区独立渲染音频并提取音色向量，更精确但较慢，需要 `tensorflow` + `tensorflow-hub`） | 关闭 |
+| `--log` | 将控制台输出同步保存到文件（如 `--log output.log`） | 仅控制台输出 |
 
 ## 输出格式
 

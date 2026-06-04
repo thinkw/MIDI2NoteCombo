@@ -3,6 +3,10 @@
 
 按八度/自定义区间分组，使用 NNLS 混合优化器为每个音区独立推荐
 Minecraft 音符盒乐器组合，支持多乐器音色混合。
+
+支持两种目标音色模式：
+- 默认模式：基于 GM 相似度加权 MC 向量构建全局伪目标向量
+- --accurate 模式：对每个音区渲染合成音频，提取真实目标向量
 """
 
 import json
@@ -21,6 +25,9 @@ from mix_optimizer import (
 
 # YAMNet embedding dimension
 EMBEDDING_DIM = 1024
+
+# 缓存 accurate 模式失败状态，避免每个音区重复输出错误
+_accurate_failed_warned = False
 
 
 def load_similarity(db_dir: str = "db") -> Dict[str, Dict[str, float]]:
@@ -157,6 +164,7 @@ def _try_split_range(
     max_pitch: int,
     mc_ranges: Dict[str, Tuple[int, int]],
     split_size: int = 6,
+    nbs_offset: int = 0,
 ) -> List[Tuple[int, int]]:
     """
     当无乐器能覆盖整个音区时，尝试拆分为更小的子区间。
@@ -166,6 +174,7 @@ def _try_split_range(
         max_pitch: 最高音。
         mc_ranges: 乐器音域表。
         split_size: 子区间大小（半音数，默认 6）。
+        nbs_offset: NBS 导入偏移量。
 
     Returns:
         子区间列表 [(low, high), ...]，每个子区间至少有一个乐器能覆盖。
@@ -176,7 +185,7 @@ def _try_split_range(
     while current <= max_pitch:
         sub_end = min(current + split_size - 1, max_pitch)
         # 检查是否有乐器能覆盖该子区间
-        candidates = filter_candidates_by_range(current, sub_end, mc_ranges)
+        candidates = filter_candidates_by_range(current, sub_end, mc_ranges, nbs_offset=nbs_offset)
         if candidates:
             sub_ranges.append((current, sub_end))
             current = sub_end + 1
@@ -184,7 +193,7 @@ def _try_split_range(
             # 尝试逐半音收缩
             found = False
             for end in range(sub_end, current - 1, -1):
-                if filter_candidates_by_range(current, end, mc_ranges):
+                if filter_candidates_by_range(current, end, mc_ranges, nbs_offset=nbs_offset):
                     sub_ranges.append((current, end))
                     current = end + 1
                     found = True
@@ -196,6 +205,117 @@ def _try_split_range(
     return sub_ranges
 
 
+def _render_octave_audio(
+    pitches: List[int],
+    program: int,
+    fs: int = 16000,
+    note_duration: float = 0.3,
+    max_duration: float = 5.0,
+    max_notes: int = 24,
+) -> Optional[np.ndarray]:
+    """
+    将音区内的音符渲染为音频波形（正弦波合成）。
+
+    Args:
+        pitches: 该音区内的音符 pitch 列表。
+        program: GM 乐器 program 编号。
+        fs: 目标采样率（默认 16000）。
+        note_duration: 每个音符持续时间（秒）。
+        max_duration: 最大音频总时长（秒）。
+        max_notes: 最多合成音符数（避免过长）。
+
+    Returns:
+        单声道波形 (n_samples,) 或 None。
+    """
+    import pretty_midi
+
+    try:
+        unique_pitches = sorted(set(pitches))[:max_notes]
+
+        # 按时间线排列音符，间隙 0.05 秒
+        gap = 0.05
+        total_per_note = note_duration + gap
+
+        mid = pretty_midi.PrettyMIDI(initial_tempo=120)
+        instr = pretty_midi.Instrument(program=program, is_drum=False)
+
+        for i, pitch in enumerate(unique_pitches):
+            start = i * total_per_note
+            if start + note_duration > max_duration:
+                break
+            note = pretty_midi.Note(
+                velocity=100, pitch=pitch,
+                start=start, end=start + note_duration,
+            )
+            instr.notes.append(note)
+
+        if not instr.notes:
+            # 无有效音符，至少放一个
+            note = pretty_midi.Note(
+                velocity=100, pitch=unique_pitches[0],
+                start=0, end=note_duration,
+            )
+            instr.notes.append(note)
+
+        mid.instruments.append(instr)
+
+        # 正弦波合成
+        audio = mid.synthesize(fs=fs)
+
+        # pretty_midi 可能返回 (n,) 或 (n, 2)，统一转为 mono
+        if audio.ndim == 2:
+            audio = audio.mean(axis=1)
+        audio = audio.astype(np.float32)
+
+        # 确保音频至少 0.96 秒（YAMNet 最小窗口）
+        min_len = int(0.96 * fs)
+        if len(audio) < min_len:
+            audio = np.pad(audio, (0, min_len - len(audio)), mode='constant')
+
+        return audio
+
+    except Exception as e:
+        print(f"[警告] 音频渲染失败 (program={program}): {e}")
+        return None
+
+
+def _build_accurate_target_vector(
+    pitches: List[int],
+    program: int,
+) -> Optional[np.ndarray]:
+    """
+    通过渲染合成 + YAMNet 提取，构建精确的目标音色向量。
+
+    Args:
+        pitches: 该音区内的音符 pitch 列表。
+        program: GM 乐器 program 编号。
+
+    Returns:
+        归一化的 (1024,) 目标向量，或 None（渲染/提取失败时）。
+    """
+    global _accurate_failed_warned
+
+    from utils import extract_vggish_embedding
+
+    audio = _render_octave_audio(pitches, program)
+    if audio is None:
+        return None
+
+    try:
+        vector = extract_vggish_embedding(audio)
+    except Exception:
+        vector = None
+
+    if vector is None:
+        if not _accurate_failed_warned:
+            _accurate_failed_warned = True
+            print("[警告] YAMNet 模型不可用（请安装 tensorflow 和 tensorflow-hub），"
+                  "--accurate 模式自动回退到默认模式。")
+        return None
+
+    return normalize_vector(vector)
+
+
 def recommend_for_track(
     track: Dict,
     similarity: Dict[str, Dict[str, float]],
@@ -203,6 +323,8 @@ def recommend_for_track(
     id_to_idx: Dict[str, int],
     group_size: int = 12,
     max_instruments: int = 3,
+    accurate: bool = False,
+    nbs_offset: int = 0,
 ) -> Dict:
     """
     为单个 MIDI 轨道按音区分区推荐最优乐器混合组合。
@@ -214,6 +336,8 @@ def recommend_for_track(
         id_to_idx: instrument_id -> vector_index 映射。
         group_size: 分组大小（半音数，默认 12 = 一个八度）。
         max_instruments: 每个音区最多使用的乐器数。
+        accurate: 是否启用渲染合成模式（为每个音区独立渲染目标向量）。
+        nbs_offset: NBS 导入 MIDI 时的半音下移偏移量（默认 12）。
 
     Returns:
         {
@@ -255,8 +379,11 @@ def recommend_for_track(
     mc_ranges = _build_mc_range_map()
     mc_vector_map = _build_mc_vector_map(mc_vectors, id_to_idx)
 
-    # 构建目标向量
-    target_vec = _build_target_vector(midi_program, similarity, mc_vectors, id_to_idx)
+    # 默认模式：构建全局伪目标向量（作为 accurate 模式的 fallback）
+    global_target_vec = _build_target_vector(midi_program, similarity, mc_vectors, id_to_idx)
+
+    # accurate 模式：用于跟踪是否已警告过渲染降级
+    _render_fallback_warned = False
 
     # 对每个八度组独立推荐
     for octave_key in sorted(octave_groups.keys()):
@@ -264,16 +391,28 @@ def recommend_for_track(
         min_pitch = min(pitches)
         max_pitch = max(pitches)
 
-        # 筛选能完全覆盖该音区的候选乐器
-        candidate_ids = filter_candidates_by_range(min_pitch, max_pitch, mc_ranges)
+        # 确定该音区的目标向量
+        target_vec = global_target_vec  # 默认使用全局向量
+
+        if accurate and not _accurate_failed_warned:
+            # accurate 模式：为该音区渲染真实目标向量（跳过已确认不可用的后续渲染）
+            accurate_vec = _build_accurate_target_vector(pitches, midi_program)
+            if accurate_vec is not None:
+                target_vec = accurate_vec
+            elif not _render_fallback_warned:
+                _render_fallback_warned = True
+                print(f"[信息] 轨道 {track_index}: 渲染合成不可用，回退到默认模式。")
+
+        # 筛选能完全覆盖该音区的候选乐器（在 NBS 偏移后的位置上）
+        candidate_ids = filter_candidates_by_range(min_pitch, max_pitch, mc_ranges, nbs_offset=nbs_offset)
 
         if not candidate_ids:
             # 尝试拆分子区间
             print(f"[警告] 轨道 {track_index} 八度 {octave_key} "
                   f"(MIDI {min_pitch}~{max_pitch}) 无乐器可完整覆盖，尝试拆分子区间。")
-            sub_ranges = _try_split_range(min_pitch, max_pitch, mc_ranges)
+            sub_ranges = _try_split_range(min_pitch, max_pitch, mc_ranges, nbs_offset=nbs_offset)
             for sub_low, sub_high in sub_ranges:
-                sub_candidates = filter_candidates_by_range(sub_low, sub_high, mc_ranges)
+                sub_candidates = filter_candidates_by_range(sub_low, sub_high, mc_ranges, nbs_offset=nbs_offset)
                 if sub_candidates:
                     cand_vectors = {cid: mc_vector_map[cid] for cid in sub_candidates}
                     best_mix, sim = find_best_mix(target_vec, cand_vectors, max_instruments)

@@ -175,10 +175,6 @@ pip install pretty_midi librosa numpy faiss-cpu tensorflow tensorflow-hub scipy
 请生成完整代码。
 
 
-
-
-
-
 🚀 增量更新：多乐器混合匹配 + 按八度分区推荐
 🎯 新增需求
 对于单个 MIDI 轨道，根据音符实际分布的八度（例如 C4–B4、C5–B5）自动划分为若干连续音区（默认按八度分组，也可按自定义区间）。
@@ -340,11 +336,11 @@ def recommend_track(track, mc_vectors, mc_ranges, gm_vectors):
 ⚙️ 命令行参数新增
 bash
 python midi2notecombo.py --midi input.mid --output out.json --group_by octave
- 可选参数:
-   --group_by {octave,custom}  音区划分方式（默认: octave）
-   --group_size 12             自定义区间大小（--group_by custom 时生效）
-   --max_instruments 3         每个音区最多使用的乐器数量（默认: 3）
-   --accurate                  启用渲染合成方式获取目标向量（更精确但稍慢，未来实现）
+# 可选参数:
+#   --group_by {octave,custom}  音区划分方式（默认: octave）
+#   --group_size 12             自定义区间大小（--group_by custom 时生效）
+#   --max_instruments 3         每个音区最多使用的乐器数量（默认: 3）
+#   --accurate                  启用渲染合成方式获取目标向量（更精确但稍慢，未来实现）
 ✅ 验证点
 确保 scipy.optimize.nnls 可用（已在 pyproject.toml 中声明依赖，pip install 时会自动安装）。
 

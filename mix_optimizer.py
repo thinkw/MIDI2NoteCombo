@@ -24,21 +24,30 @@ def filter_candidates_by_range(
     min_pitch: int,
     max_pitch: int,
     mc_ranges: Dict[str, Tuple[int, int]],
+    nbs_offset: int = 0,
 ) -> List[str]:
     """
     筛选能完全覆盖指定音区的 MC 乐器。
+
+    NBS 导入 MIDI 时会将音高整体下移（通过 --nbs_offset 配置），
+    匹配时需先将 MIDI 音高映射到 NBS 位置后再与乐器音域比较。
 
     Args:
         min_pitch: 音区最低音（MIDI 编号）。
         max_pitch: 音区最高音（MIDI 编号）。
         mc_ranges: {instrument_id: (low, high)} 乐器音域表。
+        nbs_offset: NBS 导入 MIDI 时的半音偏移量（正数=下移，0=无偏移）。
 
     Returns:
         候选乐器 ID 列表。
     """
+    # 映射到 NBS 位置：NBS 导入时会将 MIDI 音高整体偏移
+    nbs_min = min_pitch - nbs_offset
+    nbs_max = max_pitch - nbs_offset
+
     candidates = []
     for inst_id, (low, high) in mc_ranges.items():
-        if low <= min_pitch and high >= max_pitch:
+        if low <= nbs_min and high >= nbs_max:
             candidates.append(inst_id)
     return candidates
 

@@ -7,27 +7,9 @@
       "midi_instrument_name": "Fretless Bass",
       "octave_recommendations": [
         {
-          "octave": 2,
-          "note_range": [
-            30,
-            35
-          ],
-          "instruments": [
-            {
-              "instrument": "bass",
-              "weight": 0.96
-            },
-            {
-              "instrument": "didgeridoo",
-              "weight": 0.04
-            }
-          ],
-          "similarity": 0.95
-        },
-        {
           "octave": 3,
           "note_range": [
-            36,
+            41,
             46
           ],
           "instruments": [
@@ -51,27 +33,9 @@
       "midi_instrument_name": "Slap Bass 1",
       "octave_recommendations": [
         {
-          "octave": 2,
-          "note_range": [
-            30,
-            35
-          ],
-          "instruments": [
-            {
-              "instrument": "bass",
-              "weight": 0.95
-            },
-            {
-              "instrument": "didgeridoo",
-              "weight": 0.05
-            }
-          ],
-          "similarity": 0.94
-        },
-        {
           "octave": 3,
           "note_range": [
-            36,
+            41,
             46
           ],
           "instruments": [
@@ -97,7 +61,25 @@
         {
           "octave": 3,
           "note_range": [
-            36,
+            41,
+            46
+          ],
+          "instruments": [
+            {
+              "instrument": "bass",
+              "weight": 0.57
+            },
+            {
+              "instrument": "didgeridoo",
+              "weight": 0.43
+            }
+          ],
+          "similarity": 0.39
+        },
+        {
+          "octave": 3,
+          "note_range": [
+            47,
             47
           ],
           "instruments": [
@@ -120,19 +102,15 @@
           ],
           "instruments": [
             {
-              "instrument": "guitar",
-              "weight": 0.94
+              "instrument": "bass",
+              "weight": 0.57
             },
             {
-              "instrument": "trumpet_weathered",
-              "weight": 0.05
-            },
-            {
-              "instrument": "trumpet_oxidized",
-              "weight": 0.01
+              "instrument": "didgeridoo",
+              "weight": 0.43
             }
           ],
-          "similarity": 0.93
+          "similarity": 0.39
         },
         {
           "octave": 5,
@@ -143,14 +121,14 @@
           "instruments": [
             {
               "instrument": "guitar",
-              "weight": 0.64
+              "weight": 0.95
             },
             {
-              "instrument": "harp",
-              "weight": 0.36
+              "instrument": "trumpet_weathered",
+              "weight": 0.05
             }
           ],
-          "similarity": 1.0
+          "similarity": 0.93
         }
       ],
       "uncovered_notes": []
@@ -163,7 +141,25 @@
         {
           "octave": 3,
           "note_range": [
-            36,
+            41,
+            46
+          ],
+          "instruments": [
+            {
+              "instrument": "bass",
+              "weight": 0.55
+            },
+            {
+              "instrument": "didgeridoo",
+              "weight": 0.45
+            }
+          ],
+          "similarity": 0.37
+        },
+        {
+          "octave": 3,
+          "note_range": [
+            47,
             47
           ],
           "instruments": [
@@ -186,19 +182,15 @@
           ],
           "instruments": [
             {
-              "instrument": "guitar",
-              "weight": 0.8
+              "instrument": "bass",
+              "weight": 0.55
             },
             {
-              "instrument": "trumpet_weathered",
-              "weight": 0.16
-            },
-            {
-              "instrument": "trumpet_oxidized",
-              "weight": 0.04
+              "instrument": "didgeridoo",
+              "weight": 0.45
             }
           ],
-          "similarity": 0.84
+          "similarity": 0.37
         },
         {
           "octave": 5,
@@ -209,18 +201,14 @@
           "instruments": [
             {
               "instrument": "guitar",
-              "weight": 0.44
+              "weight": 0.83
             },
             {
-              "instrument": "banjo",
-              "weight": 0.37
-            },
-            {
-              "instrument": "harp",
-              "weight": 0.19
+              "instrument": "trumpet_weathered",
+              "weight": 0.17
             }
           ],
-          "similarity": 1.0
+          "similarity": 0.84
         }
       ],
       "uncovered_notes": []
@@ -233,7 +221,25 @@
         {
           "octave": 3,
           "note_range": [
-            39,
+            41,
+            46
+          ],
+          "instruments": [
+            {
+              "instrument": "didgeridoo",
+              "weight": 0.56
+            },
+            {
+              "instrument": "bass",
+              "weight": 0.44
+            }
+          ],
+          "similarity": 0.46
+        },
+        {
+          "octave": 3,
+          "note_range": [
+            47,
             47
           ],
           "instruments": [
@@ -256,19 +262,15 @@
           ],
           "instruments": [
             {
-              "instrument": "guitar",
-              "weight": 0.64
+              "instrument": "didgeridoo",
+              "weight": 0.56
             },
             {
-              "instrument": "trumpet_weathered",
-              "weight": 0.25
-            },
-            {
-              "instrument": "trumpet_oxidized",
-              "weight": 0.11
+              "instrument": "bass",
+              "weight": 0.44
             }
           ],
-          "similarity": 0.56
+          "similarity": 0.46
         },
         {
           "octave": 5,
@@ -278,19 +280,15 @@
           ],
           "instruments": [
             {
-              "instrument": "harp",
-              "weight": 0.53
+              "instrument": "guitar",
+              "weight": 0.72
             },
             {
-              "instrument": "pling",
-              "weight": 0.26
-            },
-            {
-              "instrument": "iron_xylophone",
-              "weight": 0.21
+              "instrument": "trumpet_weathered",
+              "weight": 0.28
             }
           ],
-          "similarity": 0.99
+          "similarity": 0.56
         },
         {
           "octave": 6,
@@ -300,15 +298,15 @@
           ],
           "instruments": [
             {
-              "instrument": "cow_bell",
-              "weight": 0.7
+              "instrument": "harp",
+              "weight": 0.67
             },
             {
-              "instrument": "flute",
-              "weight": 0.3
+              "instrument": "pling",
+              "weight": 0.33
             }
           ],
-          "similarity": 0.62
+          "similarity": 0.96
         }
       ],
       "uncovered_notes": []
@@ -326,25 +324,39 @@
           ],
           "instruments": [
             {
-              "instrument": "harp",
-              "weight": 0.53
+              "instrument": "guitar",
+              "weight": 0.72
             },
             {
-              "instrument": "pling",
-              "weight": 0.26
-            },
-            {
-              "instrument": "iron_xylophone",
-              "weight": 0.21
+              "instrument": "trumpet_weathered",
+              "weight": 0.28
             }
           ],
-          "similarity": 0.99
+          "similarity": 0.56
         },
         {
           "octave": 6,
           "note_range": [
             72,
             83
+          ],
+          "instruments": [
+            {
+              "instrument": "harp",
+              "weight": 0.67
+            },
+            {
+              "instrument": "pling",
+              "weight": 0.33
+            }
+          ],
+          "similarity": 0.96
+        },
+        {
+          "octave": 7,
+          "note_range": [
+            84,
+            91
           ],
           "instruments": [
             {
@@ -357,24 +369,6 @@
             }
           ],
           "similarity": 0.62
-        },
-        {
-          "octave": 7,
-          "note_range": [
-            84,
-            91
-          ],
-          "instruments": [
-            {
-              "instrument": "bell",
-              "weight": 0.73
-            },
-            {
-              "instrument": "xylobone",
-              "weight": 0.27
-            }
-          ],
-          "similarity": 0.61
         }
       ],
       "uncovered_notes": []
@@ -392,19 +386,15 @@
           ],
           "instruments": [
             {
-              "instrument": "trumpet",
-              "weight": 0.39
-            },
-            {
-              "instrument": "trumpet_exposed",
-              "weight": 0.35
-            },
-            {
               "instrument": "trumpet_weathered",
-              "weight": 0.26
+              "weight": 0.63
+            },
+            {
+              "instrument": "trumpet_oxidized",
+              "weight": 0.37
             }
           ],
-          "similarity": 0.97
+          "similarity": 0.88
         },
         {
           "octave": 5,
@@ -414,25 +404,39 @@
           ],
           "instruments": [
             {
-              "instrument": "trumpet_exposed",
-              "weight": 0.49
+              "instrument": "trumpet_weathered",
+              "weight": 0.64
             },
             {
-              "instrument": "trumpet",
-              "weight": 0.41
-            },
-            {
-              "instrument": "bit",
-              "weight": 0.1
+              "instrument": "trumpet_oxidized",
+              "weight": 0.36
             }
           ],
-          "similarity": 0.96
+          "similarity": 0.88
         },
         {
           "octave": 6,
           "note_range": [
             72,
             83
+          ],
+          "instruments": [
+            {
+              "instrument": "trumpet_exposed",
+              "weight": 0.55
+            },
+            {
+              "instrument": "trumpet",
+              "weight": 0.45
+            }
+          ],
+          "similarity": 0.95
+        },
+        {
+          "octave": 7,
+          "note_range": [
+            84,
+            90
           ],
           "instruments": [
             {
@@ -445,28 +449,6 @@
             }
           ],
           "similarity": 0.37
-        },
-        {
-          "octave": 7,
-          "note_range": [
-            84,
-            90
-          ],
-          "instruments": [
-            {
-              "instrument": "cow_bell",
-              "weight": 0.5
-            },
-            {
-              "instrument": "flute",
-              "weight": 0.34
-            },
-            {
-              "instrument": "bell",
-              "weight": 0.16
-            }
-          ],
-          "similarity": 0.38
         }
       ],
       "uncovered_notes": []
@@ -484,25 +466,39 @@
           ],
           "instruments": [
             {
-              "instrument": "harp",
-              "weight": 0.55
+              "instrument": "guitar",
+              "weight": 0.72
             },
             {
-              "instrument": "pling",
-              "weight": 0.36
-            },
-            {
-              "instrument": "iron_xylophone",
-              "weight": 0.1
+              "instrument": "trumpet_weathered",
+              "weight": 0.28
             }
           ],
-          "similarity": 0.94
+          "similarity": 0.53
         },
         {
           "octave": 6,
           "note_range": [
             72,
             83
+          ],
+          "instruments": [
+            {
+              "instrument": "harp",
+              "weight": 0.61
+            },
+            {
+              "instrument": "pling",
+              "weight": 0.39
+            }
+          ],
+          "similarity": 0.93
+        },
+        {
+          "octave": 7,
+          "note_range": [
+            84,
+            93
           ],
           "instruments": [
             {
@@ -515,28 +511,6 @@
             }
           ],
           "similarity": 0.71
-        },
-        {
-          "octave": 7,
-          "note_range": [
-            84,
-            93
-          ],
-          "instruments": [
-            {
-              "instrument": "bell",
-              "weight": 0.7
-            },
-            {
-              "instrument": "icechime",
-              "weight": 0.21
-            },
-            {
-              "instrument": "xylobone",
-              "weight": 0.09
-            }
-          ],
-          "similarity": 0.53
         }
       ],
       "uncovered_notes": []
@@ -547,10 +521,10 @@
       "midi_instrument_name": "String Ensemble 1",
       "octave_recommendations": [
         {
-          "octave": 2,
+          "octave": 3,
           "note_range": [
-            34,
-            34
+            41,
+            46
           ],
           "instruments": [
             {
@@ -567,7 +541,7 @@
         {
           "octave": 3,
           "note_range": [
-            36,
+            47,
             47
           ],
           "instruments": [
@@ -590,19 +564,15 @@
           ],
           "instruments": [
             {
-              "instrument": "guitar",
-              "weight": 0.7
+              "instrument": "didgeridoo",
+              "weight": 0.52
             },
             {
-              "instrument": "trumpet_weathered",
-              "weight": 0.24
-            },
-            {
-              "instrument": "trumpet_oxidized",
-              "weight": 0.05
+              "instrument": "bass",
+              "weight": 0.48
             }
           ],
-          "similarity": 0.49
+          "similarity": 0.37
         },
         {
           "octave": 5,
@@ -612,19 +582,15 @@
           ],
           "instruments": [
             {
-              "instrument": "harp",
-              "weight": 0.79
+              "instrument": "guitar",
+              "weight": 0.73
             },
             {
-              "instrument": "iron_xylophone",
-              "weight": 0.16
-            },
-            {
-              "instrument": "trumpet",
-              "weight": 0.05
+              "instrument": "didgeridoo",
+              "weight": 0.27
             }
           ],
-          "similarity": 0.86
+          "similarity": 0.51
         }
       ],
       "uncovered_notes": []
