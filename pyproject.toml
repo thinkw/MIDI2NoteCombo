@@ -27,7 +27,6 @@ py-modules = [
     "build_mc_db",
     "build_gm_similarity",
     "midi_parser",
-    "cover_engine",
     "recommender",
     "mix_optimizer",
     "instruments",

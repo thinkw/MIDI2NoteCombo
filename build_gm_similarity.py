@@ -205,18 +205,6 @@ def _init_fallback():
 _init_fallback()
 
 
-def _generate_sine_tone(midi_note: int, duration: float = 1.0, sr: int = 16000) -> np.ndarray:
-    """
-    生成指定 MIDI 音高的正弦波（简易合成），用于 FuildSynth 不可用时的 fallback。
-
-    注意: 这是极简版本，仅作音高参考；实际音色对比仍依赖手工映射表。
-    """
-    freq = 440.0 * (2 ** ((midi_note - 69) / 12.0))
-    t = np.linspace(0, duration, int(sr * duration), endpoint=False)
-    wave = 0.5 * np.sin(2 * np.pi * freq * t)
-    return wave.astype(np.float32)
-
-
 def try_fluidsynth(samples_dir: str, db_dir: str) -> bool:
     """
     尝试使用 FluidSynth 合成 GM 乐器音色并计算相似度。
@@ -225,7 +213,6 @@ def try_fluidsynth(samples_dir: str, db_dir: str) -> bool:
     Returns:
         True 如果成功生成了相似度表。
     """
-    import subprocess
     import tempfile
 
     # 检查 fluidsynth 是否可用
@@ -272,8 +259,22 @@ def try_fluidsynth(samples_dir: str, db_dir: str) -> bool:
         mc_metadata = json.load(f)
     mc_index = faiss.read_index(mc_index_path)
 
-    # 重建 MC 向量矩阵（从 faiss 索引提取）
-    mc_vectors = faiss.rev_swig_ptr(mc_index.xb, mc_index.ntotal * VGGISH_EMBEDDING_DIM).reshape(mc_index.ntotal, VGGISH_EMBEDDING_DIM).copy()
+    # 重建 MC 向量矩阵（从 FAISS 索引提取，兼容多个版本）
+    dim = mc_index.d
+    n = mc_index.ntotal
+    try:
+        mc_vectors = faiss.rev_swig_ptr(mc_index.xb, n * dim).reshape(n, dim).copy()
+    except AttributeError:
+        try:
+            mc_vectors = faiss.rev_swig_ptr(
+                faiss.cast_integer_to_float_ptr(mc_index.codes),
+                n * dim,
+            ).reshape(n, dim).copy()
+        except Exception:
+            try:
+                mc_vectors = faiss.vector_to_array(mc_index.codes).reshape(n, dim).copy()
+            except Exception:
+                mc_vectors = np.array([mc_index.reconstruct(i) for i in range(n)], dtype=np.float32)
 
     # 合成 128 个 GM 乐器并提取向量
     fs = fluidsynth.Synth()

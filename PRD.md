@@ -96,18 +96,17 @@ MIDI2NoteCombo
 - 收集所有音符的 `pitch`，计算 `min_note` 和 `max_note`。
 - 返回轨道列表：`[{"index": i, "program": p, "min_note": mn, "max_note": mx, "notes": [pitch1, pitch2,...]}]`
 
-### 4. 区间覆盖枚举 (`cover_engine.py`)
-- 输入：目标音域 `[target_low, target_high]`（MIDI 编号）。
-- 根据乐器数据表，计算每个乐器的实际音域 `[low, high]`。
-- 筛选出与目标区间有交集的乐器。
-- 使用 `itertools.combinations` 枚举 1~4 个乐器的所有组合。
-- 对于每个组合，检查这些乐器音域区间的并集是否完全覆盖 `[target_low, target_high]`（允许超出）。
-- 返回所有可行组合的列表，每个组合包含 `[(inst_id, low, high), ...]`。
+### 4. 区间覆盖枚举（已移除）
+
+原 `cover_engine.py` 已被 `mix_optimizer.py` 内置的 `filter_candidates_by_range()` + NNLS 混合优化完全取代，不再需要独立的覆盖枚举模块。
 
 ### 5. 音色相似度加权选择 (`recommender.py`)
+
+> **已升级为 v2**：原 cover_engine 区间覆盖枚举已替换为 NNLS 混合优化（详见增量更新部分）。以下为旧版设计参考。
+
 - 加载 `similarity.json`。
 - 对于 MIDI 轨道（已知 program, target_low, target_high, 音符列表）：
-  - 调用 `cover_engine` 得到所有可行组合。
+  - 得到所有可行组合。
   - 若无可行组合，则输出警告并尝试扩展（八度平移），见步骤 6。
   - 对于每个可行组合：
     - 计算该组合内各乐器负责的音符数量：根据音符列表的 pitch 分布，分配到组合内每个乐器的音域区间中。
@@ -142,7 +141,6 @@ MIDI2NoteCombo/
 ├── build_mc_db.py             # 构建 MC 乐器向量库
 ├── build_gm_similarity.py     # 构建 GM 相似度矩阵
 ├── midi_parser.py             # MIDI 解析模块
-├── cover_engine.py            # 区间覆盖枚举
 ├── recommender.py             # 推荐算法
 ├── instruments.py             # 乐器数据表（transpose 等）
 ├── utils.py                   # 辅助函数（音频加载、YAMNet embedding 提取）
@@ -226,7 +224,7 @@ pip install pretty_midi librosa numpy faiss-cpu tensorflow tensorflow-hub scipy
 mix_optimizer.py	新增	实现 NNLS 混合权重求解、候选乐器筛选
 midi_parser.py	修改	增加 get_notes_by_octave() 函数，返回按八度分组的音符
 recommender.py	重写	改为按八度调用混合优化器，替换原来的单一组合推荐
-cover_engine.py	保留	供旧版逻辑使用；混合优化器内置独立 filter_candidates_by_range()，不再调用 cover_engine
+cover_engine.py	已移除	区间覆盖枚举已被 mix_optimizer 的 NNLS 混合优化方案完全取代
 utils.py	修改	增加 normalize_vector()、cosine_similarity()
 输出 JSON 格式	重构	见下方新格式
 📤 更新后的输出 JSON 格式

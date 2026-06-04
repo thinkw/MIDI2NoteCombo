@@ -10,7 +10,7 @@ AUDIO_SAMPLE_RATE = 16000
 # YAMNet 输出 embedding 维度为 1024
 EMBEDDING_DIM = 1024
 
-# 向后兼容别名
+# 向后兼容别名（旧代码使用 VGGish 命名）
 VGGISH_SAMPLE_RATE = AUDIO_SAMPLE_RATE
 VGGISH_EMBEDDING_DIM = EMBEDDING_DIM
 
@@ -56,11 +56,11 @@ def _load_yamnet_model():
     return _yamnet_model
 
 
-def extract_vggish_embedding(audio: np.ndarray, sr: int = AUDIO_SAMPLE_RATE) -> Optional[np.ndarray]:
+def extract_audio_embedding(audio: np.ndarray, sr: int = AUDIO_SAMPLE_RATE) -> Optional[np.ndarray]:
     """
     从音频波形中提取音频 Embedding 向量（对所有帧取平均）。
 
-    使用 YAMNet 模型（TF2 兼容，替代不兼容 TF2 的 VGGish v1）。
+    使用 YAMNet 模型，输出 1024 维向量。
 
     Args:
         audio: 单声道波形 (n_samples,)。
@@ -116,6 +116,10 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     输入应为已 L2 归一化的向量（内积即余弦相似度）。
     """
     return float(np.dot(a, b))
+
+
+# 向后兼容别名
+extract_vggish_embedding = extract_audio_embedding
 
 
 def normalize_vector(v: np.ndarray) -> np.ndarray:

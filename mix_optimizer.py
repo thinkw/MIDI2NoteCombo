@@ -9,15 +9,7 @@ import numpy as np
 from scipy.optimize import nnls
 from typing import Dict, List, Tuple
 
-from instruments import get_instrument_range, get_all_instruments
-
-
-def normalize_vector(v: np.ndarray) -> np.ndarray:
-    """L2 归一化向量。返回归一化后的副本。"""
-    norm = np.linalg.norm(v)
-    if norm > 0:
-        return v / norm
-    return v.copy()
+from utils import normalize_vector
 
 
 def filter_candidates_by_range(
@@ -103,7 +95,11 @@ def find_best_mix(
     selected = [(ids[i], round(float(selected_weights[j]), 2)) for j, i in enumerate(idx)]
 
     # 修正四舍五入导致的权重和不为 1.0 的情况
-    if len(selected) == 1:
-        selected = [(selected[0][0], 1.0)]
+    total = sum(w for _, w in selected)
+    if abs(total - 1.0) > 1e-6 and len(selected) > 0:
+        # 调整权重最大的乐器使总和为 1.0
+        selected.sort(key=lambda x: x[1])
+        selected[-1] = (selected[-1][0], round(selected[-1][1] + 1.0 - total, 2))
+        selected.sort(key=lambda x: -x[1])
 
     return selected, sim

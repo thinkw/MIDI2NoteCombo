@@ -58,8 +58,7 @@ MIDI2NoteCombo/
 ├── build_mc_db.py             # 构建 MC 乐器向量库
 ├── build_gm_similarity.py     # 构建 GM 相似度矩阵
 ├── midi_parser.py             # MIDI 解析模块（含八度分组）
-├── cover_engine.py            # 区间覆盖枚举（保留旧版兼容）
-├── mix_optimizer.py           # NNLS 混合优化器（新增）
+├── mix_optimizer.py           # NNLS 混合优化器
 ├── recommender.py             # 推荐算法（v2：按音区混合）
 ├── instruments.py             # 乐器数据表
 ├── utils.py                   # 辅助函数（音频加载、向量归一化等）
@@ -127,6 +126,12 @@ python midi2notecombo.py --midi song.mid --group_by custom --group_size 6
 
 # 限制每个音区最多 2 个乐器
 python midi2notecombo.py --midi song.mid --max_instruments 2
+
+# 启用精确渲染模式（对每个音区独立合成音频 + 提取真实目标向量）
+python midi2notecombo.py --midi song.mid --accurate
+
+# 将控制台输出同步保存到日志文件
+python midi2notecombo.py --midi song.mid --log output.log
 ```
 
 ### 命令行参数
@@ -141,7 +146,26 @@ python midi2notecombo.py --midi song.mid --max_instruments 2
 | `--group_size` | 自定义区间大小（半音数，`--group_by custom` 时生效） | `12` |
 | `--max_instruments` | 每个音区最多使用的乐器数量 | `3` |
 | `--accurate` | 启用渲染合成方式获取目标向量（对每个音区独立渲染音频并提取音色向量，更精确但较慢，需要 `tensorflow` + `tensorflow-hub`） | 关闭 |
+| `--nbs_offset` | NBS 导入 MIDI 时的半音下移偏移量（详见下方「NBS 音高偏移」说明） | `12` |
 | `--log` | 将控制台输出同步保存到文件（如 `--log output.log`） | 仅控制台输出 |
+
+### NBS 音高偏移
+
+`pretty_midi` 使用标准 MIDI 编号（C4=60），而 Note Block Studio 使用 C3=48 的八度命名。NBS 导入 MIDI 时会将所有音符下移 12 个半音，因此 Python 解析出的音高比 NBS 中的实际位置高一个八度。
+
+若不校正，音域匹配时会用偏高数值去匹配乐器，导致错误推荐（例如将 trumpet 轨道的低音区误推荐为 bell/flute 等音域完全不同的乐器）。
+
+`--nbs_offset` 默认值为 `12`，在音域匹配前将 MIDI 音高减去该偏移量，使其与 NBS 中的位置一致：
+
+```bash
+# 默认 offset=12（标准情况）
+python midi2notecombo.py --midi song.mid
+
+# 如果 NBS 导入时偏移量不同
+python midi2notecombo.py --midi song.mid --nbs_offset 0
+```
+
+> **如何确认你的偏移量**：在 NBS 中导入同一份 MIDI 后，对比 NBS 显示的音高范围与 Python 输出日志中的 MIDI 音域，差值即为应设置的 `--nbs_offset`。
 
 ## 输出格式
 

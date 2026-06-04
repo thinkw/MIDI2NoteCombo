@@ -133,14 +133,6 @@ def print_summary(results: List[Dict], verbose: bool = False) -> None:
     print("\n" + "=" * 60)
 
 
-def _midi_to_note_name(midi: int) -> str:
-    """将 MIDI 编号转为音名（如 60 -> C4）。"""
-    note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-    octave = (midi // 12) - 1
-    note = note_names[midi % 12]
-    return f"{note}{octave}"
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="MIDI2NoteCombo - Minecraft 音符盒乐器组合推荐工具",

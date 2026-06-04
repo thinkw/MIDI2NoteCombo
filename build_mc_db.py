@@ -2,7 +2,7 @@
 MC 乐器向量库离线构建工具。
 
 从 samples/ 目录读取每种 MC 乐器的 .ogg 基础采样文件，
-使用 VGGish 模型提取 128 维向量，存入 FAISS 索引和 JSON 元数据。
+使用 YAMNet 模型提取 1024 维向量，存入 FAISS 索引和 JSON 元数据。
 """
 
 import os
@@ -116,7 +116,7 @@ def build_mc_vector_db(samples_dir: str = "samples", db_dir: str = "db") -> bool
 
 
 def main():
-    parser = argparse.ArgumentParser(description="构建 MC 乐器 VGGish 向量库")
+    parser = argparse.ArgumentParser(description="构建 MC 乐器音频 Embedding 向量库")
     parser.add_argument("--samples_dir", default="samples",
                         help="包含 .ogg 采样文件的目录（默认: samples）")
     parser.add_argument("--db_dir", default="db",

@@ -29,6 +29,11 @@ EMBEDDING_DIM = 1024
 # 缓存 accurate 模式失败状态，避免每个音区重复输出错误
 _accurate_failed_warned = False
 
+# 缓存 MC 音域映射（模块级别，避免每次调用重建）
+_mc_range_cache: Optional[Dict[str, Tuple[int, int]]] = None
+# 缓存 MC 向量映射
+_mc_vector_cache: Optional[Tuple[np.ndarray, Dict[str, int], Dict[str, np.ndarray]]] = None
+
 
 def load_similarity(db_dir: str = "db") -> Dict[str, Dict[str, float]]:
     """
@@ -143,20 +148,34 @@ def _build_target_vector(
 
 
 def _build_mc_range_map() -> Dict[str, Tuple[int, int]]:
-    """构建 instrument_id -> (low, high) 音域映射。"""
-    instruments = get_all_instruments()
-    return {inst["instrument_id"]: (inst["actual_low"], inst["actual_high"]) for inst in instruments}
+    """构建 instrument_id -> (low, high) 音域映射（带缓存）。"""
+    global _mc_range_cache
+    if _mc_range_cache is None:
+        instruments = get_all_instruments()
+        _mc_range_cache = {inst["instrument_id"]: (inst["actual_low"], inst["actual_high"]) for inst in instruments}
+    return _mc_range_cache
 
 
 def _build_mc_vector_map(
     mc_vectors: np.ndarray,
     id_to_idx: Dict[str, int],
 ) -> Dict[str, np.ndarray]:
-    """构建 instrument_id -> normalized_vector 映射。"""
-    return {
+    """构建 instrument_id -> normalized_vector 映射（带缓存）。"""
+    global _mc_vector_cache
+
+    # 以 mc_vectors 的 id() 和 id_to_idx 的键集作为缓存 key
+    cache_key = (id(mc_vectors), tuple(sorted(id_to_idx.keys())))
+    if _mc_vector_cache is not None:
+        cached_key, cached_map = _mc_vector_cache
+        if cached_key == cache_key:
+            return cached_map
+
+    vec_map = {
         inst_id: normalize_vector(mc_vectors[idx])
         for inst_id, idx in id_to_idx.items()
     }
+    _mc_vector_cache = (cache_key, vec_map)
+    return vec_map
 
 
 def _try_split_range(
@@ -295,22 +314,24 @@ def _build_accurate_target_vector(
     """
     global _accurate_failed_warned
 
-    from utils import extract_vggish_embedding
+    if _accurate_failed_warned:
+        return None
+
+    from utils import extract_audio_embedding
 
     audio = _render_octave_audio(pitches, program)
     if audio is None:
         return None
 
     try:
-        vector = extract_vggish_embedding(audio)
+        vector = extract_audio_embedding(audio)
     except Exception:
         vector = None
 
     if vector is None:
-        if not _accurate_failed_warned:
-            _accurate_failed_warned = True
-            print("[警告] YAMNet 模型不可用（请安装 tensorflow 和 tensorflow-hub），"
-                  "--accurate 模式自动回退到默认模式。")
+        _accurate_failed_warned = True
+        print("[警告] YAMNet 模型不可用（请安装 tensorflow 和 tensorflow-hub），"
+              "--accurate 模式自动回退到默认模式。")
         return None
 
     return normalize_vector(vector)
@@ -382,9 +403,6 @@ def recommend_for_track(
     # 默认模式：构建全局伪目标向量（作为 accurate 模式的 fallback）
     global_target_vec = _build_target_vector(midi_program, similarity, mc_vectors, id_to_idx)
 
-    # accurate 模式：用于跟踪是否已警告过渲染降级
-    _render_fallback_warned = False
-
     # 对每个八度组独立推荐
     for octave_key in sorted(octave_groups.keys()):
         pitches = octave_groups[octave_key]
@@ -395,12 +413,13 @@ def recommend_for_track(
         target_vec = global_target_vec  # 默认使用全局向量
 
         if accurate and not _accurate_failed_warned:
-            # accurate 模式：为该音区渲染真实目标向量（跳过已确认不可用的后续渲染）
+            # accurate 模式：为该音区渲染真实目标向量
+            # _accurate_failed_warned 在 _build_accurate_target_vector 中设为 True
+            # 后，后续音区不再尝试渲染
             accurate_vec = _build_accurate_target_vector(pitches, midi_program)
             if accurate_vec is not None:
                 target_vec = accurate_vec
-            elif not _render_fallback_warned:
-                _render_fallback_warned = True
+            else:
                 print(f"[信息] 轨道 {track_index}: 渲染合成不可用，回退到默认模式。")
 
         # 筛选能完全覆盖该音区的候选乐器（在 NBS 偏移后的位置上）
