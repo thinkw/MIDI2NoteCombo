@@ -14,7 +14,6 @@ from typing import Dict, List, Optional
 # - actual_high: 实际最高音（MIDI 编号）
 INSTRUMENT_DEFS: List[Dict] = [
     {"instrument_id": "harp",              "name": "竖琴/钢琴",      "transpose": 0,   "actual_low": 54, "actual_high": 78},
-    {"instrument_id": "piano",             "name": "钢琴",           "transpose": 0,   "actual_low": 54, "actual_high": 78},
     {"instrument_id": "banjo",             "name": "班卓琴",         "transpose": 0,   "actual_low": 54, "actual_high": 78},
     {"instrument_id": "bit",               "name": "芯片（方波）",    "transpose": 0,   "actual_low": 54, "actual_high": 78},
     {"instrument_id": "pling",             "name": "扣弦（电钢琴）",  "transpose": 0,   "actual_low": 54, "actual_high": 78},

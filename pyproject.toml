@@ -1,6 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "midi2notecombo"
 version = "0.1.0"
-description = "Add your description here"
-requires-python = ">=3.14"
-dependencies = []
+description = "Minecraft 原版音符盒乐器组合推荐工具 —— 输入 MIDI 文件，输出最优音符盒乐器组合"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "pretty_midi>=0.2.10",
+    "librosa>=0.10.0",
+    "numpy>=1.24.0",
+    "faiss-cpu>=1.7.4",
+    "tensorflow>=2.13.0",
+    "tensorflow-hub>=0.15.0",
+    "scipy>=1.10.0",
+    "setuptools>=68.0,<70",
+]
+
+[project.scripts]
+midi2notecombo = "midi2notecombo:main"
+
+[tool.setuptools]
+py-modules = [
+    "midi2notecombo",
+    "build_mc_db",
+    "build_gm_similarity",
+    "midi_parser",
+    "cover_engine",
+    "recommender",
+    "mix_optimizer",
+    "instruments",
+    "utils",
+]

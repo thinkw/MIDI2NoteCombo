@@ -12,7 +12,7 @@ import numpy as np
 from typing import Dict, Optional
 
 from instruments import get_all_instruments, get_instrument_ids
-from utils import extract_vggish_embedding, load_audio, ensure_dir
+from utils import extract_vggish_embedding, load_audio, ensure_dir, VGGISH_EMBEDDING_DIM
 
 
 # ============================================================
@@ -30,14 +30,14 @@ def _init_fallback():
         FALLBACK_SIMILARITY[gm_prog] = mapping
 
     # Piano family (0-7)
-    set_sim(0, {"harp": 1.0, "piano": 1.0, "pling": 0.5, "iron_xylophone": 0.4, "banjo": 0.3})
-    set_sim(1, {"harp": 1.0, "piano": 1.0, "pling": 0.4, "iron_xylophone": 0.3, "banjo": 0.3})
-    set_sim(2, {"harp": 0.9, "piano": 1.0, "pling": 0.5, "iron_xylophone": 0.4, "banjo": 0.3})
-    set_sim(3, {"harp": 0.9, "piano": 1.0, "pling": 0.4, "iron_xylophone": 0.3, "banjo": 0.2})
-    set_sim(4, {"harp": 0.7, "piano": 0.8, "pling": 0.7, "iron_xylophone": 0.5, "bit": 0.5})
-    set_sim(5, {"harp": 0.7, "piano": 0.8, "pling": 0.7, "iron_xylophone": 0.5, "bit": 0.5})
-    set_sim(6, {"harp": 0.8, "piano": 0.8, "pling": 0.5, "iron_xylophone": 0.4})
-    set_sim(7, {"harp": 0.7, "piano": 0.7, "pling": 0.5, "iron_xylophone": 0.4})
+    set_sim(0, {"harp": 1.0, "pling": 0.5, "iron_xylophone": 0.4, "banjo": 0.3})
+    set_sim(1, {"harp": 1.0, "pling": 0.4, "iron_xylophone": 0.3, "banjo": 0.3})
+    set_sim(2, {"harp": 1.0, "pling": 0.5, "iron_xylophone": 0.4, "banjo": 0.3})
+    set_sim(3, {"harp": 1.0, "pling": 0.4, "iron_xylophone": 0.3, "banjo": 0.2})
+    set_sim(4, {"harp": 0.8, "pling": 0.7, "iron_xylophone": 0.5, "bit": 0.5})
+    set_sim(5, {"harp": 0.8, "pling": 0.7, "iron_xylophone": 0.5, "bit": 0.5})
+    set_sim(6, {"harp": 0.8, "pling": 0.5, "iron_xylophone": 0.4})
+    set_sim(7, {"harp": 0.7, "pling": 0.5, "iron_xylophone": 0.4})
 
     # Chromatic Percussion (8-15)
     set_sim(8, {"iron_xylophone": 0.9, "xylobone": 0.8, "icechime": 0.5})
@@ -50,10 +50,10 @@ def _init_fallback():
     set_sim(15, {"icechime": 0.9, "bell": 0.7, "cow_bell": 0.5})
 
     # Organ (16-23)
-    set_sim(16, {"harp": 0.5, "piano": 0.5, "flute": 0.3})
-    set_sim(17, {"harp": 0.5, "piano": 0.4})
+    set_sim(16, {"harp": 0.6, "pling": 0.4, "flute": 0.3})
+    set_sim(17, {"harp": 0.6, "pling": 0.4})
     set_sim(18, {"harp": 0.4, "bit": 0.4})
-    set_sim(19, {"harp": 0.5, "piano": 0.4, "flute": 0.3})
+    set_sim(19, {"harp": 0.6, "pling": 0.4, "flute": 0.3})
     set_sim(20, {"harp": 0.4, "bit": 0.5})
     set_sim(21, {"harp": 0.4, "bit": 0.5})
     set_sim(22, {"flute": 0.4})
@@ -80,14 +80,14 @@ def _init_fallback():
     set_sim(39, {"bass": 0.8, "guitar": 0.3})
 
     # Strings (40-47) & Ensemble (48-55)
-    set_sim(40, {"harp": 0.7, "flute": 0.5, "piano": 0.5})
-    set_sim(41, {"harp": 0.7, "flute": 0.5, "piano": 0.5})
-    set_sim(42, {"harp": 0.6, "flute": 0.5, "piano": 0.5})
-    set_sim(43, {"harp": 0.6, "flute": 0.5, "piano": 0.4})
-    set_sim(44, {"harp": 0.6, "flute": 0.5, "piano": 0.5})
-    set_sim(45, {"harp": 0.5, "flute": 0.4, "piano": 0.5})
-    set_sim(46, {"harp": 0.8, "banjo": 0.5, "piano": 0.6})
-    set_sim(47, {"harp": 0.7, "banjo": 0.5, "piano": 0.6})
+    set_sim(40, {"harp": 0.7, "flute": 0.5, "pling": 0.5})
+    set_sim(41, {"harp": 0.7, "flute": 0.5, "pling": 0.5})
+    set_sim(42, {"harp": 0.6, "flute": 0.5, "pling": 0.5})
+    set_sim(43, {"harp": 0.6, "flute": 0.5, "pling": 0.4})
+    set_sim(44, {"harp": 0.6, "flute": 0.5, "pling": 0.5})
+    set_sim(45, {"harp": 0.5, "flute": 0.4, "pling": 0.5})
+    set_sim(46, {"harp": 0.8, "banjo": 0.5, "pling": 0.6})
+    set_sim(47, {"harp": 0.7, "banjo": 0.5, "pling": 0.6})
     set_sim(48, {"harp": 0.6, "flute": 0.5})
     set_sim(49, {"harp": 0.6, "flute": 0.5})
     set_sim(50, {"flute": 0.5, "harp": 0.4})
@@ -273,7 +273,7 @@ def try_fluidsynth(samples_dir: str, db_dir: str) -> bool:
     mc_index = faiss.read_index(mc_index_path)
 
     # 重建 MC 向量矩阵（从 faiss 索引提取）
-    mc_vectors = faiss.rev_swig_ptr(mc_index.xb, mc_index.ntotal * 128).reshape(mc_index.ntotal, 128).copy()
+    mc_vectors = faiss.rev_swig_ptr(mc_index.xb, mc_index.ntotal * VGGISH_EMBEDDING_DIM).reshape(mc_index.ntotal, VGGISH_EMBEDDING_DIM).copy()
 
     # 合成 128 个 GM 乐器并提取向量
     fs = fluidsynth.Synth()

@@ -22,7 +22,7 @@ from typing import Dict, List
 
 from instruments import get_instrument_ids, get_all_instruments
 from midi_parser import parse_midi
-from recommender import load_similarity, recommend_for_track
+from recommender import load_similarity, load_mc_vectors, recommend_for_track
 from utils import ensure_dir
 
 
@@ -65,32 +65,38 @@ def print_summary(results: List[Dict], verbose: bool = False) -> None:
         ti = track_result["track_index"]
         prog = track_result["midi_program"]
         name = track_result["midi_instrument_name"]
-        note_range = track_result["note_range"]
-        combo = track_result["recommended_combination"]
-        uncovered = track_result["uncovered_notes"]
+        octave_recs = track_result.get("octave_recommendations", [])
+        uncovered = track_result.get("uncovered_notes", [])
 
         print(f"\n--- 轨道 {ti}: {name} (Program {prog}) ---")
-        print(f"  原始音域: MIDI {note_range[0]} ~ {note_range[1]} "
-              f"({_midi_to_note_name(note_range[0])} ~ {_midi_to_note_name(note_range[1])})")
 
-        if combo:
-            print(f"  推荐组合 ({len(combo)} 个乐器):")
-            for item in combo:
-                inst_id = item["instrument"]
-                rng = (item["note_range_start"], item["note_range_end"])
-                tr = item.get("transpose", 0)
-                print(f"    • {inst_id:20s} 负责音域: MIDI {rng[0]:3d} ~ {rng[1]:3d} "
-                      f"({_midi_to_note_name(rng[0])} ~ {_midi_to_note_name(rng[1])})")
+        if octave_recs:
+            print(f"  共 {len(octave_recs)} 个音区推荐:")
+            for rec in octave_recs:
+                octave = rec["octave"]
+                note_range = rec["note_range"]
+                instruments = rec["instruments"]
+                sim = rec["similarity"]
+                print(f"\n  [八度 {octave}] MIDI {note_range[0]}~{note_range[1]}:")
+                print(f"     匹配度: {sim}")
+                if instruments:
+                    print(f"     推荐乐器 ({len(instruments)} 个):")
+                    for item in instruments:
+                        inst_id = item["instrument"]
+                        weight = item["weight"]
+                        print(f"       - {inst_id:20s}  权重: {weight}")
+                else:
+                    print(f"     推荐乐器: 无可行组合")
         else:
-            print("  推荐组合: 无可行组合")
+            print("  无音区推荐")
 
         if uncovered:
-            print(f"  无法覆盖的音符 ({len(uncovered)} 个):")
+            print(f"\n  [警告] 无法覆盖的音符 ({len(uncovered)} 个):")
             for unc in uncovered:
                 if isinstance(unc, dict):
-                    print(f"    • MIDI {unc['pitch']}: {unc.get('shift_advice', '无法覆盖')}")
+                    print(f"    - MIDI {unc['pitch']}: {unc.get('shift_advice', '无法覆盖')}")
                 else:
-                    print(f"    • MIDI {unc}")
+                    print(f"    - MIDI {unc}")
 
     print("\n" + "=" * 60)
 
@@ -112,6 +118,8 @@ def main():
   python midi2notecombo.py --midi song.mid
   python midi2notecombo.py --midi song.mid --output result.json --verbose
   python midi2notecombo.py --midi song.mid --db_dir ./db --output out.json
+  python midi2notecombo.py --midi song.mid --group_by octave --max_instruments 3
+  python midi2notecombo.py --midi song.mid --group_by custom --group_size 6
         """,
     )
     parser.add_argument("--midi", required=True,
@@ -122,6 +130,14 @@ def main():
                         help="数据库目录（默认: db）")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="打印详细信息")
+    parser.add_argument("--group_by", choices=["octave", "custom"], default="octave",
+                        help="音区划分方式：octave=按八度分组, custom=按自定义区间大小分组（默认: octave）")
+    parser.add_argument("--group_size", type=int, default=12,
+                        help="自定义区间大小（--group_by custom 时生效，默认: 12）")
+    parser.add_argument("--max_instruments", type=int, default=3,
+                        help="每个音区最多使用的乐器数量（默认: 3）")
+    parser.add_argument("--accurate", action="store_true",
+                        help="启用渲染合成方式获取目标向量（更精确但较慢，暂未实现）")
     args = parser.parse_args()
 
     # 检查输入文件
@@ -132,6 +148,9 @@ def main():
     # 检查数据库
     if not check_databases(args.db_dir):
         sys.exit(1)
+
+    # 确定分组大小
+    group_size = args.group_size if args.group_by == "custom" else 12
 
     print(f"[信息] 解析 MIDI 文件: {args.midi}")
     tracks = parse_midi(args.midi)
@@ -151,12 +170,19 @@ def main():
         # 加载相似度表
         similarity = load_similarity(args.db_dir)
 
+        # 加载 MC 向量
+        mc_vectors, id_to_idx = load_mc_vectors(args.db_dir)
+
         # 对每个轨道执行推荐
         results = []
         for track in tracks:
             if args.verbose:
                 print(f"[信息] 正在为轨道 {track['track_index']} 推荐乐器...")
-            track_result = recommend_for_track(track, similarity)
+            track_result = recommend_for_track(
+                track, similarity, mc_vectors, id_to_idx,
+                group_size=group_size,
+                max_instruments=args.max_instruments,
+            )
             results.append(track_result)
 
     # 构建输出 JSON

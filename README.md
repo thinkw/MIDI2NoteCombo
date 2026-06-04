@@ -6,10 +6,12 @@ Minecraft 原版音符盒乐器组合推荐工具。
 
 ## 核心特性
 
-- 基于 VGGish 深度学习模型提取音色向量
+- 基于 YAMNet 深度学习模型提取 1024 维音色向量
 - 使用 FAISS 进行高效的余弦相似度检索
-- 区间覆盖枚举算法，自动寻找最优乐器组合
-- 支持音域不足时的八度平移建议
+- **按八度/自定义区间分组**，每个音区独立推荐最优乐器组合
+- **多乐器音色混合**：使用非负最小二乘法（NNLS）求解混合权重，精确逼近目标音色
+- 区间覆盖枚举算法，自动为每个音区筛选候选乐器
+- 支持超音域音符的警告输出与八度平移建议
 - 纯本地运行，无需数据库服务器
 
 ## 依赖安装
@@ -21,7 +23,7 @@ Minecraft 原版音符盒乐器组合推荐工具。
 ### 安装依赖
 
 ```bash
-pip install pretty_midi librosa numpy faiss-cpu tensorflow tensorflow-hub
+pip install pretty_midi librosa numpy faiss-cpu tensorflow tensorflow-hub scipy
 ```
 
 > **注意**: `tensorflow` 和 `tensorflow-hub` 在某些 Python 版本下可能需要特定安装方式。如果遇到兼容性问题，请参考 [TensorFlow 官方安装指南](https://www.tensorflow.org/install)。
@@ -55,11 +57,12 @@ MIDI2NoteCombo/
 ├── midi2notecombo.py          # 主入口（命令行工具）
 ├── build_mc_db.py             # 构建 MC 乐器向量库
 ├── build_gm_similarity.py     # 构建 GM 相似度矩阵
-├── midi_parser.py             # MIDI 解析模块
-├── cover_engine.py            # 区间覆盖枚举
-├── recommender.py             # 推荐算法
+├── midi_parser.py             # MIDI 解析模块（含八度分组）
+├── cover_engine.py            # 区间覆盖枚举（保留旧版兼容）
+├── mix_optimizer.py           # NNLS 混合优化器（新增）
+├── recommender.py             # 推荐算法（v2：按音区混合）
 ├── instruments.py             # 乐器数据表
-├── utils.py                   # 辅助函数
+├── utils.py                   # 辅助函数（音频加载、向量归一化等）
 ├── db/                        # 向量库和相似度数据
 │   ├── mc_vectors.faiss
 │   ├── mc_metadata.json
@@ -79,7 +82,7 @@ MIDI2NoteCombo/
 | 文件 | 乐器 | 文件 | 乐器 |
 |------|------|------|------|
 | harp.ogg | 竖琴/钢琴 | trumpet_exposed.ogg | 小号（斑驳） |
-| piano.ogg | 钢琴 | trumpet_weathered.ogg | 小号（锈蚀） |
+| banjo.ogg | 班卓琴 | trumpet_weathered.ogg | 小号（锈蚀） |
 | banjo.ogg | 班卓琴 | trumpet_oxidized.ogg | 小号（氧化） |
 | bit.ogg | 芯片（方波） | guitar.ogg | 吉他 |
 | pling.ogg | 扣弦（电钢琴） | bass.ogg | 贝斯 |
@@ -115,9 +118,33 @@ python midi2notecombo.py --midi song.mid --verbose
 
 # 指定数据库目录
 python midi2notecombo.py --midi song.mid --db_dir ./my_db
+
+# 按八度分组推荐（默认）
+python midi2notecombo.py --midi song.mid --group_by octave --max_instruments 3
+
+# 按自定义区间分组（每 6 个半音一组）
+python midi2notecombo.py --midi song.mid --group_by custom --group_size 6
+
+# 限制每个音区最多 2 个乐器
+python midi2notecombo.py --midi song.mid --max_instruments 2
 ```
 
+### 命令行参数
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--midi` | 输入 MIDI 文件路径（必填） | — |
+| `--output` | 输出 JSON 文件路径 | `result.json` |
+| `--db_dir` | 数据库目录 | `db` |
+| `--verbose`, `-v` | 打印详细信息 | 关闭 |
+| `--group_by` | 音区划分方式：`octave`（按八度）或 `custom`（自定义区间） | `octave` |
+| `--group_size` | 自定义区间大小（半音数，`--group_by custom` 时生效） | `12` |
+| `--max_instruments` | 每个音区最多使用的乐器数量 | `3` |
+| `--accurate` | 启用渲染合成方式获取目标向量（更精确，暂未实现） | 关闭 |
+
 ## 输出格式
+
+每个轨道按八度/音区独立推荐乐器组合，包含混合权重和匹配度：
 
 ```json
 {
@@ -127,25 +154,35 @@ python midi2notecombo.py --midi song.mid --db_dir ./my_db
       "track_index": 0,
       "midi_program": 0,
       "midi_instrument_name": "Acoustic Grand Piano",
-      "note_range": [36, 84],
-      "recommended_combination": [
+      "octave_recommendations": [
         {
-          "instrument": "bass",
-          "note_range_start": 36,
-          "note_range_end": 54,
-          "transpose": -24
+          "octave": 3,
+          "note_range": [36, 47],
+          "instruments": [
+            {"instrument": "bass", "weight": 0.96},
+            {"instrument": "didgeridoo", "weight": 0.04}
+          ],
+          "similarity": 0.95
         },
         {
-          "instrument": "harp",
-          "note_range_start": 55,
-          "note_range_end": 78,
-          "transpose": 0
+          "octave": 4,
+          "note_range": [48, 59],
+          "instruments": [
+            {"instrument": "guitar", "weight": 0.64},
+            {"instrument": "trumpet_weathered", "weight": 0.25},
+            {"instrument": "trumpet_oxidized", "weight": 0.11}
+          ],
+          "similarity": 0.56
         },
         {
-          "instrument": "flute",
-          "note_range_start": 79,
-          "note_range_end": 84,
-          "transpose": 12
+          "octave": 5,
+          "note_range": [60, 71],
+          "instruments": [
+            {"instrument": "harp", "weight": 0.53},
+            {"instrument": "pling", "weight": 0.26},
+            {"instrument": "iron_xylophone", "weight": 0.21}
+          ],
+          "similarity": 0.99
         }
       ],
       "uncovered_notes": []
@@ -154,11 +191,23 @@ python midi2notecombo.py --midi song.mid --db_dir ./my_db
 }
 ```
 
+字段说明：
+
+| 字段 | 说明 |
+|------|------|
+| `octave` | 八度编号（或自定义分组编号） |
+| `note_range` | 该音区的实际音符范围 `[min_pitch, max_pitch]` |
+| `instruments` | 推荐乐器列表，按权重降序排列 |
+| `instruments[].instrument` | 乐器 ID |
+| `instruments[].weight` | 混合权重（0~1，本音区内权重和为 1） |
+| `similarity` | 混合音色与目标音色的匹配度（0~1，越高越匹配） |
+| `uncovered_notes` | 未被任何 MC 乐器覆盖的音符列表 |
+
 ## MC 乐器音域参考
 
 | 乐器 | transpose | 实际音域 (MIDI) | 音域 |
 |------|-----------|-----------------|------|
-| harp / piano / banjo / bit / pling / iron_xylophone / trumpet / trumpet_exposed | 0 | 54~78 | F#3~F#5 |
+| harp / banjo / bit / pling / iron_xylophone / trumpet / trumpet_exposed | 0 | 54~78 | F#3~F#5 |
 | trumpet_weathered / trumpet_oxidized / guitar | -12 | 42~66 | F#2~F#4 |
 | bass / didgeridoo | -24 | 30~54 | F#1~F#3 |
 | flute / cow_bell | +12 | 66~90 | F#4~F#6 |
@@ -166,10 +215,12 @@ python midi2notecombo.py --midi song.mid --db_dir ./my_db
 
 ## 算法说明
 
-1. **MIDI 解析**: 提取每个非打击乐轨道的音域范围和音符分布
-2. **区间覆盖枚举**: 使用 `itertools.combinations` 枚举 1~4 个乐器的组合，检查音域完整覆盖
-3. **音色相似度加权**: 根据 GM 乐器与 MC 乐器的音色相似度矩阵，以及音符在各音域区间的分布权重，加权计算组合得分
-4. **八度平移**: 当目标音域超出 MC 乐器能力时，提供八度平移建议
+1. **MIDI 解析**: 提取每个非打击乐轨道的音域范围、音符分布和 program 编号
+2. **八度分组**: 将轨道内所有音符按八度（或自定义区间大小）自动分组，每个组作为一个独立音区
+3. **候选乐器筛选**: 对每个音区，筛选实际音域完全覆盖该音区的 MC 乐器
+4. **目标音色构建**: 根据 MIDI track 的 GM program，通过相似度加权 MC 向量构建伪目标音色向量
+5. **NNLS 混合优化**: 使用非负最小二乘法求解最优乐器混合权重，最大化混合音色与目标音色的余弦相似度
+6. **超音域处理**: 当音区无法被任何乐器覆盖时，自动拆分为更小子区间递归处理；仍无法覆盖则输出警告并跳过
 
 ## License
 
