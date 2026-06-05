@@ -21,7 +21,11 @@ from mix_optimizer import (
     find_best_mix,
     normalize_vector,
 )
-from nbs_pitch import get_all_instrument_ranges
+from nbs_pitch import (
+    get_all_instrument_ranges,
+    get_nbs_key_range_for_midi,
+    nbs_key_to_fsharp,
+)
 
 
 # YAMNet embedding dimension
@@ -296,16 +300,119 @@ def _render_octave_audio(
         return None
 
 
+def _render_fluidsynth_audio(
+    notes: List[Dict],
+    program: int,
+    soundfont_path: str,
+    fs: int = 16000,
+    max_duration: float = 30.0,
+) -> Optional[np.ndarray]:
+    """
+    使用 FluidSynth + SoundFont 将 MIDI 音符渲染为真实 GM 音色音频。
+
+    Args:
+        notes: raw_notes 列表，每个元素为 {"pitch", "velocity", "start", "end"}。
+        program: GM 乐器 program 编号。
+        soundfont_path: SoundFont 文件路径。
+        fs: 目标采样率（默认 16000）。
+        max_duration: 最大渲染时长（秒），防止超长音轨。
+
+    Returns:
+        单声道波形 (n_samples,) 或 None。
+    """
+    try:
+        import fluidsynth
+    except ImportError:
+        print("[信息] fluidsynth 未安装，无法使用 FluidSynth 渲染。"
+              "请执行: pip install pyfluidsynth")
+        return None
+
+    if not notes:
+        return None
+
+    if not os.path.isfile(soundfont_path):
+        print(f"[警告] SoundFont 文件不存在: {soundfont_path}")
+        return None
+
+    synth = fluidsynth.Synth(gain=1.0)
+    # 不调用 synth.start() - 离屏渲染不需要音频驱动/MIDI输入设备
+    sf_id = synth.sfload(soundfont_path)
+    synth.program_select(0, sf_id, 0, program)
+
+    max_end = max(n["end"] for n in notes)
+    total_duration = min(max_end + 0.5, max_duration)
+
+    synth_sr = 44100
+    buf_size = 1024
+    total_buf = int(total_duration * synth_sr / buf_size)
+
+    # 构建事件队列：按时间排序所有 note-on / note-off
+    events = []
+    for n in notes:
+        events.append((n["start"], "on", n["pitch"], n["velocity"]))
+        events.append((n["end"], "off", n["pitch"], 0))
+    events.sort()
+
+    audio_chunks = []
+    event_idx = 0
+
+    for frame in range(total_buf):
+        t = frame * buf_size / synth_sr
+        while event_idx < len(events) and events[event_idx][0] <= t:
+            _, etype, pitch, vel = events[event_idx]
+            if etype == "on":
+                synth.noteon(0, pitch, vel)
+            else:
+                synth.noteoff(0, pitch)
+            event_idx += 1
+
+        buf = synth.get_samples(buf_size)
+        # buf 形状: (2 * buf_size,) (左右声道交替)
+        left_channel = buf[::2]
+        audio_chunks.extend(left_channel)
+
+    synth.delete()
+
+    audio = np.array(audio_chunks, dtype=np.float32)
+
+    # 重采样到目标采样率（YAMNet 需要 16000Hz）
+    try:
+        from scipy import signal
+        num_samples = int(len(audio) * fs / synth_sr)
+        if num_samples > 1:
+            audio = signal.resample(audio, num_samples).astype(np.float32)
+        else:
+            return None
+    except ImportError:
+        print("[信息] scipy 未安装，无法重采样。请执行: pip install scipy")
+        synth.delete()
+        return None
+
+    # 确保音频至少 0.96 秒（YAMNet 最小窗口）
+    min_len = int(0.96 * fs)
+    if len(audio) < min_len:
+        audio = np.pad(audio, (0, min_len - len(audio)), mode='constant')
+
+    return audio
+
+
 def _build_accurate_target_vector(
     pitches: List[int],
     program: int,
+    raw_notes: Optional[List[Dict]] = None,
+    soundfont_path: Optional[str] = None,
 ) -> Optional[np.ndarray]:
     """
     通过渲染合成 + YAMNet 提取，构建精确的目标音色向量。
 
+    优先使用 FluidSynth + SoundFont 渲染真实 GM 音色（最精确），
+    SoundFont 不可用时回退到正弦波合成。
+
     Args:
         pitches: 该音区内的音符 pitch 列表。
         program: GM 乐器 program 编号。
+        raw_notes: 原始音符数据（含 pitch/velocity/start/end），用于 FluidSynth 渲染。
+        soundfont_path: SoundFont 文件路径，如指定则优先用 FluidSynth 渲染。
 
     Returns:
         归一化的 (1024,) 目标向量，或 None（渲染/提取失败时）。
@@ -317,6 +424,19 @@ def _build_accurate_target_vector(
 
     from utils import extract_audio_embedding
 
+    # 优先：FluidSynth + SoundFont 真实 GM 音色渲染
+    if soundfont_path and raw_notes:
+        audio = _render_fluidsynth_audio(raw_notes, program, soundfont_path)
+        if audio is not None:
+            try:
+                vector = extract_audio_embedding(audio)
+                if vector is not None:
+                    return normalize_vector(vector)
+            except Exception:
+                pass
+        print("[信息] FluidSynth 渲染不可用，回退到正弦波合成。")
+
+    # 回退：正弦波合成
     audio = _render_octave_audio(pitches, program)
     if audio is None:
         return None
@@ -343,6 +463,7 @@ def recommend_for_track(
     group_size: int = 12,
     max_instruments: int = 3,
     accurate: bool = False,
+    soundfont_path: Optional[str] = None,
 ) -> Dict:
     """
     为单个 MIDI 轨道按音区分区推荐最优乐器混合组合。
@@ -355,6 +476,8 @@ def recommend_for_track(
         group_size: 分组大小（半音数，默认 12 = 一个八度）。
         max_instruments: 每个音区最多使用的乐器数。
         accurate: 是否启用渲染合成模式（为每个音区独立渲染目标向量）。
+        soundfont_path: SoundFont 文件路径（如 FluidR3_GM.sf2）。
+            指定后 accurate 模式优先用 FluidSynth 渲染真实 GM 音色。
 
     Returns:
         {
@@ -377,6 +500,8 @@ def recommend_for_track(
     midi_program = track["midi_program"]
     midi_instrument_name = track["midi_instrument_name"]
     notes = track.get("notes", [])
+    raw_notes_free = track.get("raw_notes", [])
+    raw_notes = track.get("raw_notes", [])
 
     result = {
         "track_index": track_index,
@@ -410,9 +535,16 @@ def recommend_for_track(
 
         if accurate and not _accurate_failed_warned:
             # accurate 模式：为该音区渲染真实目标向量
-            # _accurate_failed_warned 在 _build_accurate_target_vector 中设为 True
-            # 后，后续音区不再尝试渲染
-            accurate_vec = _build_accurate_target_vector(pitches, midi_program)
+            # 筛选该音区内的原始音符（保留时间和力度信息），用于 FluidSynth 渲染
+            group_raw_notes = [
+                n for n in raw_notes
+                if min_pitch <= n["pitch"] <= max_pitch
+            ] if raw_notes else None
+            accurate_vec = _build_accurate_target_vector(
+                pitches, midi_program,
+                raw_notes=group_raw_notes,
+                soundfont_path=soundfont_path,
+            )
             if accurate_vec is not None:
                 target_vec = accurate_vec
             else:
@@ -451,5 +583,133 @@ def recommend_for_track(
             "instruments": [{"instrument": inst, "weight": w} for inst, w in best_mix],
             "similarity": sim,
         })
+
+    return result
+
+
+def recommend_for_track_free(
+    track: Dict,
+    similarity: Dict[str, Dict[str, float]],
+    mc_vectors: np.ndarray,
+    id_to_idx: Dict[str, int],
+    max_instruments: int = 3,
+    num_recommendations: int = 3,
+    accurate: bool = True,
+    soundfont_path: Optional[str] = None,
+) -> Dict:
+    """
+    忽略 MC 音域限制，为整个轨道推荐 top-N 乐器混合组合。
+
+    与 recommend_for_track 的关键区别：
+    - 不做音域筛选，全部 17 种非打击乐器都是候选
+    - 不按八度拆分，整个轨道为一个整体
+    - 返回 num_recommendations 组最佳混合（通过迭代排除已用乐器产生多样性）
+    - 每组的 NBS key 可能超出 [32,56]（通过 nbs_outside_mc 字段标注）
+
+    Args:
+        track: midi_parser.parse_midi 返回的轨道信息。
+        similarity: GM-MC 相似度表。
+        mc_vectors: MC 向量矩阵 (n, 1024)。
+        id_to_idx: instrument_id -> vector_index 映射。
+        max_instruments: 每组最多使用的乐器数。
+        num_recommendations: 返回的推荐组数（默认 3）。
+        accurate: 是否启用渲染合成模式。
+        soundfont_path: SoundFont 文件路径（如 FluidR3_GM.sf2）。
+            指定后 accurate 模式优先用 FluidSynth 渲染真实 GM 音色。
+
+    Returns:
+        {
+            "track_index": int,
+            "midi_program": int,
+            "midi_instrument_name": str,
+            "note_range": [min_pitch, max_pitch],
+            "recommendations": [
+                {
+                    "rank": 1,
+                    "instruments": [{"instrument": str, "weight": float, "nbs_range": str, "outside_mc": bool}, ...],
+                    "similarity": float,
+                },
+                ...
+            ],
+        }
+    """
+    track_index = track["track_index"]
+    midi_program = track["midi_program"]
+    midi_instrument_name = track["midi_instrument_name"]
+    notes = track.get("notes", [])
+    raw_notes_free = track.get("raw_notes", [])
+
+    if not notes:
+        return {
+            "track_index": track_index,
+            "midi_program": midi_program,
+            "midi_instrument_name": midi_instrument_name,
+            "note_range": [0, 0],
+            "recommendations": [],
+        }
+
+    pitches = [int(n) for n in notes]
+    low_midi = min(pitches)
+    high_midi = max(pitches)
+
+    result = {
+        "track_index": track_index,
+        "midi_program": midi_program,
+        "midi_instrument_name": midi_instrument_name,
+        "note_range": [low_midi, high_midi],
+        "recommendations": [],
+    }
+
+    # 构建 MC 数据
+    mc_vector_map = _build_mc_vector_map(mc_vectors, id_to_idx)
+
+    # 构建目标向量
+    target_vec = _build_target_vector(midi_program, similarity, mc_vectors, id_to_idx)
+    if accurate and not _accurate_failed_warned:
+        accurate_vec = _build_accurate_target_vector(
+            pitches, midi_program,
+            raw_notes=raw_notes_free,
+            soundfont_path=soundfont_path,
+        )
+        if accurate_vec is not None:
+            target_vec = accurate_vec
+
+    # 候选池 = 全部非打击乐器
+    all_ids = get_instrument_ids()
+    remaining_ids = set(all_ids)
+
+    for rank in range(1, num_recommendations + 1):
+        # 从当前候选池构建向量映射
+        cand_vectors = {cid: mc_vector_map[cid] for cid in remaining_ids if cid in mc_vector_map}
+        if not cand_vectors:
+            break
+
+        best_mix, sim = find_best_mix(target_vec, cand_vectors, max_instruments)
+        if not best_mix:
+            break
+
+        # 构建该推荐组的详细信息
+        instruments_detail = []
+        for inst_id, weight in best_mix:
+            nbs_lo, nbs_hi = get_nbs_key_range_for_midi(low_midi, high_midi, inst_id)
+            nbs_range_str = f"{nbs_key_to_fsharp(nbs_lo)}~{nbs_key_to_fsharp(nbs_hi)}"
+            outside_mc = (nbs_lo < 32 or nbs_hi > 56)
+            instruments_detail.append({
+                "instrument": inst_id,
+                "weight": weight,
+                "nbs_range": nbs_range_str,
+                "outside_mc": outside_mc,
+            })
+
+        result["recommendations"].append({
+            "rank": rank,
+            "instruments": instruments_detail,
+            "similarity": sim,
+        })
+
+        # 移除权重最高的乐器以产生多样性
+        if best_mix:
+            top_inst = best_mix[0][0]
+            remaining_ids.discard(top_inst)
 
     return result

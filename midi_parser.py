@@ -24,6 +24,7 @@ def parse_midi(midi_path: str) -> List[Dict]:
             "midi_instrument_name": str,
             "note_range": [min_pitch, max_pitch],
             "notes": [pitch1, pitch2, ...],
+            "raw_notes": [{"pitch", "velocity", "start", "end"}, ...],
         }
     """
     try:
@@ -57,6 +58,17 @@ def parse_midi(midi_path: str) -> List[Dict]:
         if not pitches:
             continue
 
+        # 提取完整音符数据（用于 FluidSynth 真实音色渲染）
+        raw_notes = [
+            {
+                "pitch": int(note.pitch),
+                "velocity": int(note.velocity),
+                "start": float(note.start),
+                "end": float(note.end),
+            }
+            for note in notes
+        ]
+
         min_pitch = int(min(pitches))
         max_pitch = int(max(pitches))
 
@@ -72,6 +84,7 @@ def parse_midi(midi_path: str) -> List[Dict]:
             "midi_instrument_name": midi_instrument_name,
             "note_range": [min_pitch, max_pitch],
             "notes": pitches,
+            "raw_notes": raw_notes,
         }
         tracks.append(track_info)
 

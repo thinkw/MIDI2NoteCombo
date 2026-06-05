@@ -25,7 +25,7 @@ os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
 
 from midi_parser import parse_midi
-from recommender import load_similarity, load_mc_vectors, recommend_for_track
+from recommender import load_similarity, load_mc_vectors, recommend_for_track, recommend_for_track_free
 from utils import ensure_dir
 from nbs_pitch import (
     get_instrument_key,
@@ -173,6 +173,70 @@ def print_summary(results: List[Dict], verbose: bool = False) -> None:
     print("\n" + "=" * 60)
 
 
+def print_summary_free(results: List[Dict], verbose: bool = False) -> None:
+    """
+    自由推荐模式的打印函数：每个轨道 3 组推荐以 Markdown 表格输出。
+
+    输出格式：
+        # MIDI2NoteCombo —— 自由推荐模式
+
+        ## 轨道 N: Instrument (Program X), MIDI Lo~Hi
+
+        | 推荐 #1 (相似度: 0.987) | 推荐 #2 (相似度: 0.954) | 推荐 #3 (相似度: 0.921) |
+        |:---|:---|:---|
+        | harp (0.60) [F#3~F#5] | pling (0.55) [F#3~F#5] | bit (0.50) [F#3~F#5] |
+        | bass (0.40) [F#5~F#7] [!] | guitar (0.45) [F#2~F#4] [!] | flute (0.50) [F#3~F#5] |
+
+    [!] 表示 NBS key 超出 MC F#3~F#5 音域。
+    """
+    print()
+    print("# MIDI2NoteCombo —— 自由推荐模式（忽略 MC 音域限制）\n")
+
+    if not results:
+        print("_(无结果)_")
+        return
+
+    for track_result in results:
+        ti = track_result["track_index"]
+        prog = track_result["midi_program"]
+        name = track_result["midi_instrument_name"]
+        note_range = track_result.get("note_range", [0, 0])
+        recs = track_result.get("recommendations", [])
+
+        print(f"## 轨道 {ti}: {name} (Program {prog}), MIDI {note_range[0]}~{note_range[1]}\n")
+
+        if not recs:
+            print("_(无推荐)_\n")
+            continue
+
+        # 构建表格头
+        headers = [f"推荐 #{r['rank']} (相似度: {r['similarity']:.3f})" for r in recs]
+        header_line = "| " + " | ".join(headers) + " |"
+        sep_line = "|" + "|".join(":---" for _ in headers) + "|"
+
+        print(header_line)
+        print(sep_line)
+
+        # 每列乐器行
+        inst_columns = []
+        for rec in recs:
+            col = []
+            for item in rec.get("instruments", []):
+                nbs_range = item.get("nbs_range", "?")
+                flag = " [!]" if item.get("outside_mc") else ""
+                col.append(f"{item['instrument']} ({item['weight']:.2f}) [{nbs_range}]{flag}")
+            inst_columns.append(col)
+
+        max_rows = max(len(c) for c in inst_columns) if inst_columns else 0
+        for row_idx in range(max_rows):
+            cells = []
+            for col in inst_columns:
+                cells.append(col[row_idx] if row_idx < len(col) else "")
+            print("| " + " | ".join(cells) + " |")
+
+        print()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="MIDI2NoteCombo - Minecraft 音符盒乐器组合推荐工具",
@@ -202,9 +266,34 @@ def main():
                         help="每个音区最多使用的乐器数量（默认: 3）")
     parser.add_argument("--accurate", action="store_true",
                         help="启用渲染合成方式获取目标向量（对每个音区独立渲染音频并提取音色向量，更精确但较慢）")
+    parser.add_argument("--sf2", default=None,
+                        help="SoundFont 文件路径（如 FluidR3_GM.sf2）。"
+                             "指定后 --accurate 模式优先用 FluidSynth 渲染真实 GM 音色，"
+                             "精确度显著提升。会自动启用 --accurate 模式。")
     parser.add_argument("--log", default=None,
                         help="控制台输出日志文件路径（可选，如 --log output.log）")
+    parser.add_argument("--no_mc_limit", action="store_true",
+                        help="忽略 MC F#3~F#5 音域限制，自由推荐（自动开启 --verbose --accurate 并保存日志）")
     args = parser.parse_args()
+
+    # --no_mc_limit 模式：自动开启 verbose + accurate + 日志
+    if args.no_mc_limit:
+        args.verbose = True
+        args.accurate = True
+        if not args.log:
+            basename = os.path.splitext(os.path.basename(args.midi))[0]
+            args.log = f"no_mc_limit_{basename}.log"
+        if args.output == "result.json":
+            args.output = "result_no_mc_limit.json"
+
+    # --sf2 模式：自动启用 accurate，优先用 FluidSynth 渲染真实 GM 音色
+    if args.sf2:
+        args.accurate = True
+        if not os.path.isfile(args.sf2):
+            print(f"[警告] SoundFont 文件不存在: {args.sf2}，将回退到正弦波合成。")
+            args.sf2 = None
+        else:
+            print(f"[信息] 使用 SoundFont: {args.sf2}（FluidSynth 真实音色渲染）")
 
     # 如果指定了日志文件，同时输出到控制台和文件
     _log_tee: Optional[Tee] = None
@@ -252,12 +341,22 @@ def main():
             for track in tracks:
                 if args.verbose:
                     print(f"[信息] 正在为轨道 {track['track_index']} 推荐乐器...")
-                track_result = recommend_for_track(
-                    track, similarity, mc_vectors, id_to_idx,
-                    group_size=group_size,
-                    max_instruments=args.max_instruments,
-                    accurate=args.accurate,
-                )
+                if args.no_mc_limit:
+                    track_result = recommend_for_track_free(
+                        track, similarity, mc_vectors, id_to_idx,
+                        max_instruments=args.max_instruments,
+                        num_recommendations=3,
+                        accurate=args.accurate,
+                        soundfont_path=args.sf2,
+                    )
+                else:
+                    track_result = recommend_for_track(
+                        track, similarity, mc_vectors, id_to_idx,
+                        group_size=group_size,
+                        max_instruments=args.max_instruments,
+                        accurate=args.accurate,
+                        soundfont_path=args.sf2,
+                    )
                 results.append(track_result)
 
         # 构建输出 JSON
@@ -273,7 +372,10 @@ def main():
         print(f"\n[完成] 结果已保存到: {args.output}")
 
         # 打印摘要
-        print_summary(results, verbose=args.verbose)
+        if args.no_mc_limit:
+            print_summary_free(results, verbose=args.verbose)
+        else:
+            print_summary(results, verbose=args.verbose)
 
     finally:
         if _log_tee:
