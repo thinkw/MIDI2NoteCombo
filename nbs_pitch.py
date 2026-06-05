@@ -38,7 +38,8 @@ MIDI_FSHARP4 = 66             # F#4 对应的 MIDI 编号
 #   → 最终公式: midi_note = note_key + instrument_key - 24
 #   其中 24 = 45 - 21（即 NBS_FSHARP4_KEY - offset）
 
-# NBS 中所有乐器共享的 key 区间（MC 音符盒 2 个八度，F#3~F#5）
+# MC 音符盒可用音域 (NBS key 32~56, 即 F#3~F#5, 共 25 个半音)
+# 所有乐器在 NBS 中共享同一键盘，通过 instrument_key 在不同八度发音
 MC_NBS_KEY_MIN = 32
 MC_NBS_KEY_MAX = 56
 
@@ -174,7 +175,7 @@ def midi_range_to_nbs_fsharp(
     """
     MIDI 音高范围 → NBS F# 八度区间表示。
 
-    如 MIDI 60~71 (harp) → "F#4~F#5"
+    如 MIDI 60~71 (harp) → "F#3~F#4"
     """
     nbs_lo, nbs_hi = get_nbs_key_range_for_midi(min_pitch, max_pitch, instrument_id)
     return f"{nbs_key_to_fsharp(nbs_lo)}~{nbs_key_to_fsharp(nbs_hi)}"

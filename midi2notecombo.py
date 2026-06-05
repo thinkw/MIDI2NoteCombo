@@ -81,7 +81,13 @@ def check_databases(db_dir: str) -> bool:
 
 
 def print_summary(results: List[Dict], verbose: bool = False) -> None:
-    """在控制台打印人类可读的摘要。"""
+    """
+    在控制台打印人类可读的摘要。
+
+    所有推荐乐器的 NBS key 区间均在 MC 可播放范围 F#3~F#5 内。
+    不同 instrument_key 的乐器通过八度偏移将同一段 MIDI 音高
+    映射到 NBS key 32~56 的不同子区间，确保所有推荐实际可播放。
+    """
     print("\n" + "=" * 60)
     print("  MIDI2NoteCombo —— 音符盒乐器组合推荐结果")
     print("=" * 60)
@@ -107,12 +113,18 @@ def print_summary(results: List[Dict], verbose: bool = False) -> None:
                 instruments = rec["instruments"]
                 sim = rec["similarity"]
 
-                # NBS 基准八度区间（以 harp 为参考）
+                # 以 harp 为参照的 NBS 区间，用于判断是否需要低/高音域乐器
                 nbs_range = midi_range_to_nbs_fsharp(
                     note_range[0], note_range[1], "harp"
                 )
+                # 若 harp 参照区间超出 MC F#3~F#5，说明必须用偏移乐器"托举"
+                harp_in_mc = (
+                    "超出MC音域需偏移乐器覆盖"
+                    if note_range[0] < 53 or note_range[1] > 77
+                    else "标准音域乐器可覆盖"
+                )
                 print(f"\n  [八度 {octave}] MIDI {note_range[0]}~{note_range[1]} "
-                      f"(NBS 基准: {nbs_range}):")
+                      f"(harp参照: {nbs_range}, {harp_in_mc}):")
                 print(f"     匹配度: {sim}")
 
                 if instruments:
@@ -133,10 +145,15 @@ def print_summary(results: List[Dict], verbose: bool = False) -> None:
                             tone_info = f"key={inst_key} (同八度)"
 
                         # 目标 MIDI 区间在此乐器上的 NBS key 范围
+                        # 不变式: 因 filter_candidates_by_range 要求完整覆盖 MC 音域，
+                        #   通过筛选的乐器其 NBS key 必定在 [32, 56] (F#3~F#5) 内
                         nbs_lo, nbs_hi = get_nbs_key_range_for_midi(
                             note_range[0], note_range[1], inst_id
                         )
                         nbs_key_info = f"NBS key [{nbs_key_to_fsharp(nbs_lo)}~{nbs_key_to_fsharp(nbs_hi)}]"
+                        # 安全检查：若超出 MC 音域则输出警告
+                        if nbs_lo < 32 or nbs_hi > 56:
+                            nbs_key_info += f" [警告: 超出MC可播放音域F#3~F#5!]"
 
                         print(f"       - {inst_id:20s}  权重: {weight:.2f}  "
                               f"{tone_info}  {nbs_key_info}")
