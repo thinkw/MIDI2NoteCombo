@@ -24,10 +24,16 @@ from typing import Dict, List, Optional, TextIO
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
 
-from instruments import get_midpoint, HARP_MIDPOINT
 from midi_parser import parse_midi
 from recommender import load_similarity, load_mc_vectors, recommend_for_track
 from utils import ensure_dir
+from nbs_pitch import (
+    get_instrument_key,
+    get_octave_offset,
+    get_nbs_key_range_for_midi,
+    midi_range_to_nbs_fsharp,
+    nbs_key_to_fsharp,
+)
 
 
 class Tee:
@@ -100,23 +106,40 @@ def print_summary(results: List[Dict], verbose: bool = False) -> None:
                 note_range = rec["note_range"]
                 instruments = rec["instruments"]
                 sim = rec["similarity"]
-                print(f"\n  [八度 {octave}] MIDI {note_range[0]}~{note_range[1]}:")
+
+                # NBS 基准八度区间（以 harp 为参考）
+                nbs_range = midi_range_to_nbs_fsharp(
+                    note_range[0], note_range[1], "harp"
+                )
+                print(f"\n  [八度 {octave}] MIDI {note_range[0]}~{note_range[1]} "
+                      f"(NBS 基准: {nbs_range}):")
                 print(f"     匹配度: {sim}")
+
                 if instruments:
                     print(f"     推荐乐器 ({len(instruments)} 个):")
                     for item in instruments:
                         inst_id = item["instrument"]
                         weight = item["weight"]
-                        mid = get_midpoint(inst_id)
-                        if mid is not None:
-                            # 八度偏移 = 该乐器中间音相对于竖琴中间音(F4)的八度数
-                            # 正值表示 NBS 中需上移，负值表示下移
-                            octaves = (HARP_MIDPOINT - mid) // 12
-                            sign = "+" if octaves > 0 else ""
-                            offset_str = f"偏移{sign}{octaves}个八度"
+
+                        # 乐器 NBS 信息
+                        inst_key = get_instrument_key(inst_id)
+                        oct_off = get_octave_offset(inst_id)
+
+                        if oct_off < 0:
+                            tone_info = f"key={inst_key} (低{abs(oct_off)}八度)"
+                        elif oct_off > 0:
+                            tone_info = f"key={inst_key} (高{oct_off}八度)"
                         else:
-                            offset_str = ""
-                        print(f"       - {inst_id:20s}  权重: {weight}    {offset_str}")
+                            tone_info = f"key={inst_key} (同八度)"
+
+                        # 目标 MIDI 区间在此乐器上的 NBS key 范围
+                        nbs_lo, nbs_hi = get_nbs_key_range_for_midi(
+                            note_range[0], note_range[1], inst_id
+                        )
+                        nbs_key_info = f"NBS key [{nbs_key_to_fsharp(nbs_lo)}~{nbs_key_to_fsharp(nbs_hi)}]"
+
+                        print(f"       - {inst_id:20s}  权重: {weight:.2f}  "
+                              f"{tone_info}  {nbs_key_info}")
                 else:
                     print(f"     推荐乐器: 无可行组合")
         else:
@@ -162,10 +185,6 @@ def main():
                         help="每个音区最多使用的乐器数量（默认: 3）")
     parser.add_argument("--accurate", action="store_true",
                         help="启用渲染合成方式获取目标向量（对每个音区独立渲染音频并提取音色向量，更精确但较慢）")
-    parser.add_argument("--nbs_offset", type=int, default=12,
-                        help="NBS 导入 MIDI 时的半音下移偏移量（默认: 12）。"
-                             "pretty_midi 使用 C4=60 编号，而 NBS 使用 C3=48，"
-                             "因此 NBS 导入 MIDI 后位置 = MIDI 音高 - 此偏移量")
     parser.add_argument("--log", default=None,
                         help="控制台输出日志文件路径（可选，如 --log output.log）")
     args = parser.parse_args()
@@ -221,7 +240,6 @@ def main():
                     group_size=group_size,
                     max_instruments=args.max_instruments,
                     accurate=args.accurate,
-                    nbs_offset=args.nbs_offset,
                 )
                 results.append(track_result)
 

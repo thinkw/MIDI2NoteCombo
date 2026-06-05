@@ -1,49 +1,38 @@
 """
 Minecraft 原版音符盒乐器数据表。
 
-仅包含可发音高的乐器，打击乐器（snare, basedrum, hat）不参与音高匹配。
-
-基准点：以竖琴 (harp) 的中间音 F4 (MIDI 65) 作为参考原点。
-每件乐器的中间音相对该原点的偏移量即为 transpose。
+仅保留乐器 ID 与中文名称。音域、中间音、transpose 等计算
+全部委托给 nbs_pitch.py 的 NBS 公式。
 """
 
 from typing import Dict, List, Optional
 
-# 竖琴基准中间音（samples/harp.ogg 音高为 F4）
-HARP_MIDPOINT = 65  # F4
+# 打击乐器（不参与音高匹配）
+PERCUSSION_IDS: List[str] = ["snare", "basedrum", "hat"]
 
-# 乐器定义:
-# - instrument_id: 唯一标识
-# - name: 中文名称
-# - transpose: 半音偏移量（该乐器中间音相对于竖琴中间音 F4 的偏移）
-# - actual_low: 实际最低音（MIDI 编号）
-# - actual_high: 实际最高音（MIDI 编号）
-#
-# 各乐器音域以中间音为中心，上下各跨 12 半音（一个八度），
-# 范围跨度 = 24 半音（两个八度）。
-# 竖琴中间音 = F4 (MIDI 65) → 音域 F3~F5 (53~77)
+# 乐器定义（精简版：仅 ID + 名称）
 INSTRUMENT_DEFS: List[Dict] = [
-    {"instrument_id": "harp",              "name": "竖琴/钢琴",      "transpose": 0,   "actual_low": 53, "actual_high": 77},
-    {"instrument_id": "banjo",             "name": "班卓琴",         "transpose": 0,   "actual_low": 53, "actual_high": 77},
-    {"instrument_id": "bit",               "name": "芯片（方波）",    "transpose": 0,   "actual_low": 53, "actual_high": 77},
-    {"instrument_id": "pling",             "name": "扣弦（电钢琴）",  "transpose": 0,   "actual_low": 53, "actual_high": 77},
-    {"instrument_id": "iron_xylophone",    "name": "铁木琴（颤片琴）","transpose": 0,   "actual_low": 53, "actual_high": 77},
-    {"instrument_id": "trumpet",           "name": "小号（普通）",    "transpose": 0,   "actual_low": 53, "actual_high": 77},
-    {"instrument_id": "trumpet_exposed",   "name": "小号（斑驳）",    "transpose": 0,   "actual_low": 53, "actual_high": 77},
-    {"instrument_id": "trumpet_weathered", "name": "小号（锈蚀）",    "transpose": -12, "actual_low": 41, "actual_high": 65},
-    {"instrument_id": "trumpet_oxidized",  "name": "小号（氧化）",    "transpose": -12, "actual_low": 41, "actual_high": 65},
-    {"instrument_id": "guitar",            "name": "吉他",           "transpose": -12, "actual_low": 41, "actual_high": 65},
-    {"instrument_id": "bass",              "name": "贝斯",           "transpose": -24, "actual_low": 29, "actual_high": 53},
-    {"instrument_id": "didgeridoo",        "name": "迪吉里杜管",     "transpose": -24, "actual_low": 29, "actual_high": 53},
-    {"instrument_id": "flute",             "name": "长笛",           "transpose": 12,  "actual_low": 65, "actual_high": 89},
-    {"instrument_id": "cow_bell",          "name": "牛铃",           "transpose": 12,  "actual_low": 65, "actual_high": 89},
-    {"instrument_id": "bell",              "name": "铃铛（钟琴）",    "transpose": 24,  "actual_low": 77, "actual_high": 101},
-    {"instrument_id": "icechime",          "name": "管钟",           "transpose": 24,  "actual_low": 77, "actual_high": 101},
-    {"instrument_id": "xylobone",          "name": "木琴",           "transpose": 24,  "actual_low": 77, "actual_high": 101},
+    {"instrument_id": "harp",              "name": "竖琴/钢琴"},
+    {"instrument_id": "banjo",             "name": "班卓琴"},
+    {"instrument_id": "bit",               "name": "芯片（方波）"},
+    {"instrument_id": "pling",             "name": "扣弦（电钢琴）"},
+    {"instrument_id": "iron_xylophone",    "name": "铁木琴（颤片琴）"},
+    {"instrument_id": "trumpet",           "name": "小号（普通）"},
+    {"instrument_id": "trumpet_exposed",   "name": "小号（斑驳）"},
+    {"instrument_id": "trumpet_weathered", "name": "小号（锈蚀）"},
+    {"instrument_id": "trumpet_oxidized",  "name": "小号（氧化）"},
+    {"instrument_id": "guitar",            "name": "吉他"},
+    {"instrument_id": "bass",              "name": "贝斯"},
+    {"instrument_id": "didgeridoo",        "name": "迪吉里杜管"},
+    {"instrument_id": "flute",             "name": "长笛"},
+    {"instrument_id": "cow_bell",          "name": "牛铃"},
+    {"instrument_id": "bell",              "name": "铃铛（钟琴）"},
+    {"instrument_id": "icechime",          "name": "管钟"},
+    {"instrument_id": "xylobone",          "name": "木琴"},
 ]
 
-# 打击乐器 ID 列表（不参与音高匹配）
-PERCUSSION_IDS: List[str] = ["snare", "basedrum", "hat"]
+# 向后兼容常量
+HARP_MIDPOINT = 65  # F4 (legacy, 仅用于旧代码迁移)
 
 
 def get_instrument(instrument_id: str) -> Optional[Dict]:
@@ -55,7 +44,7 @@ def get_instrument(instrument_id: str) -> Optional[Dict]:
 
 
 def get_all_instruments() -> List[Dict]:
-    """获取所有非打击乐器定义列表（深拷贝）。"""
+    """获取所有非打击乐器定义列表。"""
     return [{**inst} for inst in INSTRUMENT_DEFS]
 
 
@@ -67,30 +56,33 @@ def get_instrument_ids() -> List[str]:
 def get_instrument_range(instrument_id: str) -> Optional[tuple]:
     """
     返回乐器的实际音域 (low_midi, high_midi)。
-    None 表示未知乐器。
+    由 nbs_pitch.get_instrument_range() 计算。
     """
-    inst = get_instrument(instrument_id)
-    if inst is None:
+    from nbs_pitch import get_instrument_range as _nbs_get_range
+    try:
+        return _nbs_get_range(instrument_id)
+    except KeyError:
         return None
-    return (inst["actual_low"], inst["actual_high"])
 
 
 def get_midpoint(instrument_id: str) -> Optional[int]:
-    """返回乐器的中间音 MIDI 编号。"""
-    rng = get_instrument_range(instrument_id)
-    if rng is None:
+    """
+    返回乐器中间音 MIDI 编号。
+    由 nbs_pitch.get_instrument_midpoint() 计算。
+    """
+    from nbs_pitch import get_instrument_midpoint as _nbs_get_mid
+    try:
+        return _nbs_get_mid(instrument_id)
+    except KeyError:
         return None
-    return (rng[0] + rng[1]) // 2
 
 
 def get_transpose(instrument_id: str) -> Optional[int]:
     """
-    返回乐器中间音相对于竖琴中间音 (F4) 的半音偏移量。
-
-    该值即乐器数据的 transpose 字段，由中间音差值计算：
-    transpose = instrument_midpoint - HARP_MIDPOINT (65)
+    [legacy] 返回 instrument_key - 45（等价于旧版 transpose 字段）。
     """
-    mid = get_midpoint(instrument_id)
-    if mid is None:
+    from nbs_pitch import get_instrument_key
+    try:
+        return get_instrument_key(instrument_id) - 45
+    except KeyError:
         return None
-    return mid - HARP_MIDPOINT

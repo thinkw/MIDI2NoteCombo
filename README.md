@@ -146,26 +146,7 @@ python midi2notecombo.py --midi song.mid --log output.log
 | `--group_size` | 自定义区间大小（半音数，`--group_by custom` 时生效） | `12` |
 | `--max_instruments` | 每个音区最多使用的乐器数量 | `3` |
 | `--accurate` | 启用渲染合成方式获取目标向量（对每个音区独立渲染音频并提取音色向量，更精确但较慢，需要 `tensorflow` + `tensorflow-hub`） | 关闭 |
-| `--nbs_offset` | NBS 导入 MIDI 时的半音下移偏移量（详见下方「NBS 音高偏移」说明） | `12` |
 | `--log` | 将控制台输出同步保存到文件（如 `--log output.log`） | 仅控制台输出 |
-
-### NBS 音高偏移
-
-`pretty_midi` 使用标准 MIDI 编号（C4=60），而 Note Block Studio 使用 C3=48 的八度命名。NBS 导入 MIDI 时会将所有音符下移 12 个半音，因此 Python 解析出的音高比 NBS 中的实际位置高一个八度。
-
-若不校正，音域匹配时会用偏高数值去匹配乐器，导致错误推荐（例如将 trumpet 轨道的低音区误推荐为 bell/flute 等音域完全不同的乐器）。
-
-`--nbs_offset` 默认值为 `12`，在音域匹配前将 MIDI 音高减去该偏移量，使其与 NBS 中的位置一致：
-
-```bash
-# 默认 offset=12（标准情况）
-python midi2notecombo.py --midi song.mid
-
-# 如果 NBS 导入时偏移量不同
-python midi2notecombo.py --midi song.mid --nbs_offset 0
-```
-
-> **如何确认你的偏移量**：在 NBS 中导入同一份 MIDI 后，对比 NBS 显示的音高范围与 Python 输出日志中的 MIDI 音域，差值即为应设置的 `--nbs_offset`。
 
 ## 输出格式
 
@@ -228,15 +209,76 @@ python midi2notecombo.py --midi song.mid --nbs_offset 0
 | `similarity` | 混合音色与目标音色的匹配度（0~1，越高越匹配） |
 | `uncovered_notes` | 未被任何 MC 乐器覆盖的音符列表 |
 
-## MC 乐器音域参考
+### 控制台输出
 
-| 乐器 | transpose | 实际音域 (MIDI) | 音域 |
-|------|-----------|-----------------|------|
-| harp / banjo / bit / pling / iron_xylophone / trumpet / trumpet_exposed | 0 | 54~78 | F#3~F#5 |
-| trumpet_weathered / trumpet_oxidized / guitar | -12 | 42~66 | F#2~F#4 |
-| bass / didgeridoo | -24 | 30~54 | F#1~F#3 |
-| flute / cow_bell | +12 | 66~90 | F#4~F#6 |
-| bell / icechime / xylobone | +24 | 78~102 | F#5~F#7 |
+控制台会打印每条推荐乐器的 **NBS key 音号区间**，直接对应 Note Block Studio 中的按键位置：
+
+```
+--- 轨道 0: Acoustic Grand Piano (Program 0) ---
+  共 2 个音区推荐:
+
+  [八度 0] MIDI 60~71 (NBS 基准: F#4~F#5):
+     匹配度: 0.987
+     推荐乐器 (3 个):
+       - harp                 权重: 0.95  key=45 (同八度)  NBS key [F#4~F#5]
+       - pling                权重: 0.82  key=45 (同八度)  NBS key [F#4~F#5]
+       - guitar               权重: 0.71  key=33 (低1八度)  NBS key [F#5~F#6]
+```
+
+- **NBS key [F#4~F#5]** — 在 NBS 编辑器中将音符放在 F#4 到 F#5 之间即可发出目标音高
+- **key=值 (同/低/高八度)** — 乐器的 `instrument_key` 参数，反映相对于竖琴(harp)的八度偏移
+
+## NBS 音高模型
+
+### 核心原理
+
+Note Block Studio 中每个音符的**实际发音音高**由两个参数共同决定：
+
+| 参数 | 含义 | 示例 |
+|:---|:---|:---|
+| `note_key` | NBS 编辑器中音符的**按键位置**（0~239，所有乐器共用同一键盘） | 在 F#4 位置放一个音符 → key = 45 |
+| `instrument_key` | 每种乐器固有的**音高偏移量**，决定该乐器在相同键位上的实际发音八度 | harp = 45, bass = 21, flute = 57 |
+
+**核心公式**（来自 NBS 官方格式规范）：
+
+```
+实际音高 (cents) = (note_key + instrument_key - 45) × 100 + note_pitch
+
+等效 MIDI 音高: midi_note = note_key + instrument_key - 24
+```
+
+**校准基准**：选择竖琴 (harp, instrument_key=45) 在 note_key=45 (F#4) 时，实际发音为 MIDI 66 = F#4，作为整个系统的锚点。
+
+### instrument_key 的作用
+
+`instrument_key` 本质上是一个**八度平移器**：
+- 竖琴组 (key=45)：在 NBS 键位 F#3~F#5 上以**原八度**发音
+- 贝斯组 (key=21)：同样的键位，实际发音**低 2 个八度**
+- 长笛组 (key=57)：同样的键位，实际发音**高 1 个八度**
+
+这使得所有乐器共享同一套 NBS 键盘（F#3~F#5，即 key 32~56），却能在不同八度发出声音。
+
+### NBS 八度命名
+
+NBS 以 **F# 为八度边界**（与 Minecraft 音符盒的 25 音阶对应）：
+- F#3 对应 key = 30
+- F#4 对应 key = 42
+- F#5 对应 key = 54
+- 通用公式：**F#N 起始于 key = 6 + (N − 1) × 12**
+
+### 乐器音域参考
+
+所有乐器在 NBS 中均使用 key 区间 **[32, 56]**（即 F#3~F#5），通过不同的 `instrument_key` 在不同八度实际发音：
+
+| 乐器组 | instrument_key | NBS key 区间 | 实际发音音域 | 相对竖琴 |
+|:---|:---:|:---|:---|:---:|
+| harp / banjo / bit / pling / iron_xylophone / trumpet / trumpet_exposed | 45 | 32~56 | F#3~F#5 | 同八度 |
+| trumpet_weathered / trumpet_oxidized / guitar | 33 | 32~56 | F#2~F#4 | 低 1 八度 |
+| bass / didgeridoo | 21 | 32~56 | F#1~F#3 | 低 2 八度 |
+| flute / cow_bell | 57 | 32~56 | F#4~F#6 | 高 1 八度 |
+| bell / icechime / xylobone | 69 | 32~56 | F#5~F#7 | 高 2 八度 |
+
+> **使用方式**：控制台输出会直接给出 `NBS key [F#x~F#y]`，将这些键位上的音符放到对应乐器轨道即可。无需手动换算 instrument_key——NBS 会根据乐器自动处理。
 
 ## 算法说明
 

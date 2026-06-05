@@ -14,13 +14,14 @@ import os
 import numpy as np
 from typing import Dict, List, Tuple, Optional
 
-from instruments import get_all_instruments, get_instrument_range, get_instrument_ids
+from instruments import get_all_instruments, get_instrument_ids
 from midi_parser import get_notes_by_octave
 from mix_optimizer import (
     filter_candidates_by_range,
     find_best_mix,
     normalize_vector,
 )
+from nbs_pitch import get_all_instrument_ranges
 
 
 # YAMNet embedding dimension
@@ -148,11 +149,10 @@ def _build_target_vector(
 
 
 def _build_mc_range_map() -> Dict[str, Tuple[int, int]]:
-    """构建 instrument_id -> (low, high) 音域映射（带缓存）。"""
+    """构建 instrument_id -> (low, high) 音域映射（由 nbs_pitch 计算，带缓存）。"""
     global _mc_range_cache
     if _mc_range_cache is None:
-        instruments = get_all_instruments()
-        _mc_range_cache = {inst["instrument_id"]: (inst["actual_low"], inst["actual_high"]) for inst in instruments}
+        _mc_range_cache = get_all_instrument_ranges()
     return _mc_range_cache
 
 
@@ -183,7 +183,6 @@ def _try_split_range(
     max_pitch: int,
     mc_ranges: Dict[str, Tuple[int, int]],
     split_size: int = 6,
-    nbs_offset: int = 0,
 ) -> List[Tuple[int, int]]:
     """
     当无乐器能覆盖整个音区时，尝试拆分为更小的子区间。
@@ -193,7 +192,6 @@ def _try_split_range(
         max_pitch: 最高音。
         mc_ranges: 乐器音域表。
         split_size: 子区间大小（半音数，默认 6）。
-        nbs_offset: NBS 导入偏移量。
 
     Returns:
         子区间列表 [(low, high), ...]，每个子区间至少有一个乐器能覆盖。
@@ -204,7 +202,7 @@ def _try_split_range(
     while current <= max_pitch:
         sub_end = min(current + split_size - 1, max_pitch)
         # 检查是否有乐器能覆盖该子区间
-        candidates = filter_candidates_by_range(current, sub_end, mc_ranges, nbs_offset=nbs_offset)
+        candidates = filter_candidates_by_range(current, sub_end, mc_ranges)
         if candidates:
             sub_ranges.append((current, sub_end))
             current = sub_end + 1
@@ -212,7 +210,7 @@ def _try_split_range(
             # 尝试逐半音收缩
             found = False
             for end in range(sub_end, current - 1, -1):
-                if filter_candidates_by_range(current, end, mc_ranges, nbs_offset=nbs_offset):
+                if filter_candidates_by_range(current, end, mc_ranges):
                     sub_ranges.append((current, end))
                     current = end + 1
                     found = True
@@ -345,7 +343,6 @@ def recommend_for_track(
     group_size: int = 12,
     max_instruments: int = 3,
     accurate: bool = False,
-    nbs_offset: int = 0,
 ) -> Dict:
     """
     为单个 MIDI 轨道按音区分区推荐最优乐器混合组合。
@@ -358,7 +355,6 @@ def recommend_for_track(
         group_size: 分组大小（半音数，默认 12 = 一个八度）。
         max_instruments: 每个音区最多使用的乐器数。
         accurate: 是否启用渲染合成模式（为每个音区独立渲染目标向量）。
-        nbs_offset: NBS 导入 MIDI 时的半音下移偏移量（默认 12）。
 
     Returns:
         {
@@ -422,16 +418,16 @@ def recommend_for_track(
             else:
                 print(f"[信息] 轨道 {track_index}: 渲染合成不可用，回退到默认模式。")
 
-        # 筛选能完全覆盖该音区的候选乐器（在 NBS 偏移后的位置上）
-        candidate_ids = filter_candidates_by_range(min_pitch, max_pitch, mc_ranges, nbs_offset=nbs_offset)
+        # 筛选能完全覆盖该音区的候选乐器
+        candidate_ids = filter_candidates_by_range(min_pitch, max_pitch, mc_ranges)
 
         if not candidate_ids:
             # 尝试拆分子区间
             print(f"[警告] 轨道 {track_index} 八度 {octave_key} "
                   f"(MIDI {min_pitch}~{max_pitch}) 无乐器可完整覆盖，尝试拆分子区间。")
-            sub_ranges = _try_split_range(min_pitch, max_pitch, mc_ranges, nbs_offset=nbs_offset)
+            sub_ranges = _try_split_range(min_pitch, max_pitch, mc_ranges)
             for sub_low, sub_high in sub_ranges:
-                sub_candidates = filter_candidates_by_range(sub_low, sub_high, mc_ranges, nbs_offset=nbs_offset)
+                sub_candidates = filter_candidates_by_range(sub_low, sub_high, mc_ranges)
                 if sub_candidates:
                     cand_vectors = {cid: mc_vector_map[cid] for cid in sub_candidates}
                     best_mix, sim = find_best_mix(target_vec, cand_vectors, max_instruments)
